@@ -1,0 +1,21 @@
+# Build output
+/vw
+/dist/
+
+# Local mount points
+/views/
+
+# Go tooling
+*.test
+*.out
+coverage.*
+
+# macOS
+.DS_Store
+._*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
