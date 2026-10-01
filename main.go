@@ -35,17 +35,13 @@ type Ptfs struct {
 	root string
 }
 
-func (self *Ptfs) Init() {
-	defer trace()()
-	e := syscall.Chdir(self.root)
-	if nil == e {
-		self.root = "./"
-	}
+func (self *Ptfs) real(path string) string {
+	return filepath.Join(self.root, path)
 }
 
 func (self *Ptfs) Statfs(path string, stat *fuse.Statfs_t) (errc int) {
 	defer trace(path)(&errc, stat)
-	path = filepath.Join(self.root, path)
+	path = self.real(path)
 	stgo := syscall.Statfs_t{}
 	errc = errno(syscall_Statfs(path, &stgo))
 	copyFusestatfsFromGostatfs(stat, &stgo)
@@ -55,47 +51,47 @@ func (self *Ptfs) Statfs(path string, stat *fuse.Statfs_t) (errc int) {
 func (self *Ptfs) Mknod(path string, mode uint32, dev uint64) (errc int) {
 	defer trace(path, mode, dev)(&errc)
 	defer setuidgid()()
-	path = filepath.Join(self.root, path)
+	path = self.real(path)
 	return errno(syscall.Mknod(path, mode, int(dev)))
 }
 
 func (self *Ptfs) Mkdir(path string, mode uint32) (errc int) {
 	defer trace(path, mode)(&errc)
 	defer setuidgid()()
-	path = filepath.Join(self.root, path)
+	path = self.real(path)
 	return errno(syscall.Mkdir(path, mode))
 }
 
 func (self *Ptfs) Unlink(path string) (errc int) {
 	defer trace(path)(&errc)
-	path = filepath.Join(self.root, path)
+	path = self.real(path)
 	return errno(syscall.Unlink(path))
 }
 
 func (self *Ptfs) Rmdir(path string) (errc int) {
 	defer trace(path)(&errc)
-	path = filepath.Join(self.root, path)
+	path = self.real(path)
 	return errno(syscall.Rmdir(path))
 }
 
 func (self *Ptfs) Link(oldpath string, newpath string) (errc int) {
 	defer trace(oldpath, newpath)(&errc)
 	defer setuidgid()()
-	oldpath = filepath.Join(self.root, oldpath)
-	newpath = filepath.Join(self.root, newpath)
+	oldpath = self.real(oldpath)
+	newpath = self.real(newpath)
 	return errno(syscall.Link(oldpath, newpath))
 }
 
 func (self *Ptfs) Symlink(target string, newpath string) (errc int) {
 	defer trace(target, newpath)(&errc)
 	defer setuidgid()()
-	newpath = filepath.Join(self.root, newpath)
+	newpath = self.real(newpath)
 	return errno(syscall.Symlink(target, newpath))
 }
 
 func (self *Ptfs) Readlink(path string) (errc int, target string) {
 	defer trace(path)(&errc, &target)
-	path = filepath.Join(self.root, path)
+	path = self.real(path)
 	buff := [1024]byte{}
 	n, e := syscall.Readlink(path, buff[:])
 	if nil != e {
@@ -107,26 +103,26 @@ func (self *Ptfs) Readlink(path string) (errc int, target string) {
 func (self *Ptfs) Rename(oldpath string, newpath string) (errc int) {
 	defer trace(oldpath, newpath)(&errc)
 	defer setuidgid()()
-	oldpath = filepath.Join(self.root, oldpath)
-	newpath = filepath.Join(self.root, newpath)
+	oldpath = self.real(oldpath)
+	newpath = self.real(newpath)
 	return errno(syscall.Rename(oldpath, newpath))
 }
 
 func (self *Ptfs) Chmod(path string, mode uint32) (errc int) {
 	defer trace(path, mode)(&errc)
-	path = filepath.Join(self.root, path)
+	path = self.real(path)
 	return errno(syscall.Chmod(path, mode))
 }
 
 func (self *Ptfs) Chown(path string, uid uint32, gid uint32) (errc int) {
 	defer trace(path, uid, gid)(&errc)
-	path = filepath.Join(self.root, path)
+	path = self.real(path)
 	return errno(syscall.Lchown(path, int(uid), int(gid)))
 }
 
 func (self *Ptfs) Utimens(path string, tmsp1 []fuse.Timespec) (errc int) {
 	defer trace(path, tmsp1)(&errc)
-	path = filepath.Join(self.root, path)
+	path = self.real(path)
 	tmsp := [2]syscall.Timespec{}
 	tmsp[0].Sec, tmsp[0].Nsec = tmsp1[0].Sec, tmsp1[0].Nsec
 	tmsp[1].Sec, tmsp[1].Nsec = tmsp1[1].Sec, tmsp1[1].Nsec
@@ -145,7 +141,7 @@ func (self *Ptfs) Open(path string, flags int) (errc int, fh uint64) {
 }
 
 func (self *Ptfs) open(path string, flags int, mode uint32) (errc int, fh uint64) {
-	path = filepath.Join(self.root, path)
+	path = self.real(path)
 	f, e := syscall.Open(path, flags, mode)
 	if nil != e {
 		return errno(e), ^uint64(0)
@@ -157,7 +153,7 @@ func (self *Ptfs) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int) 
 	defer trace(path, fh)(&errc, stat)
 	stgo := syscall.Stat_t{}
 	if ^uint64(0) == fh {
-		path = filepath.Join(self.root, path)
+		path = self.real(path)
 		errc = errno(syscall.Lstat(path, &stgo))
 	} else {
 		errc = errno(syscall.Fstat(int(fh), &stgo))
@@ -169,7 +165,7 @@ func (self *Ptfs) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int) 
 func (self *Ptfs) Truncate(path string, size int64, fh uint64) (errc int) {
 	defer trace(path, size, fh)(&errc)
 	if ^uint64(0) == fh {
-		path = filepath.Join(self.root, path)
+		path = self.real(path)
 		errc = errno(syscall.Truncate(path, size))
 	} else {
 		errc = errno(syscall.Ftruncate(int(fh), size))
@@ -207,7 +203,7 @@ func (self *Ptfs) Fsync(path string, datasync bool, fh uint64) (errc int) {
 
 func (self *Ptfs) Opendir(path string) (errc int, fh uint64) {
 	defer trace(path)(&errc, &fh)
-	path = filepath.Join(self.root, path)
+	path = self.real(path)
 	f, e := syscall.Open(path, syscall.O_RDONLY|syscall.O_DIRECTORY, 0)
 	if nil != e {
 		return errno(e), ^uint64(0)
@@ -220,7 +216,7 @@ func (self *Ptfs) Readdir(path string,
 	ofst int64,
 	fh uint64) (errc int) {
 	defer trace(path, fill, ofst, fh)(&errc)
-	path = filepath.Join(self.root, path)
+	path = self.real(path)
 	file, e := os.Open(path)
 	if nil != e {
 		return errno(e)
