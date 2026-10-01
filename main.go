@@ -36,18 +36,39 @@ var (
 
 type viewFS struct {
 	fuse.FileSystemBase
-	root string
+	view    *core.View
+	mounted fuse.Timespec
 }
 
-func (self *viewFS) real(path string) string {
-	return filepath.Join(self.root, path)
+// real maps a view path to the real path inside a member, or an errno when it has none.
+func (self *viewFS) real(path string) (string, int) {
+	r := self.view.Resolve(path)
+	if core.InMember != r.Kind {
+		return "", -fuse.ENOENT
+	}
+	return r.Real, 0
+}
+
+// rootStat describes the view root, which has no real directory behind it.
+func (self *viewFS) rootStat(stat *fuse.Stat_t) {
+	*stat = fuse.Stat_t{}
+	stat.Mode = fuse.S_IFDIR | 0555
+	stat.Nlink = uint32(2 + len(self.view.Names()))
+	stat.Uid, stat.Gid = uint32(os.Getuid()), uint32(os.Getgid())
+	stat.Atim, stat.Mtim, stat.Ctim, stat.Birthtim = self.mounted, self.mounted, self.mounted, self.mounted
 }
 
 func (self *viewFS) Statfs(path string, stat *fuse.Statfs_t) (errc int) {
 	defer trace(path)(&errc, stat)
-	path = self.real(path)
+	r := self.view.Resolve(path)
+	if core.Root == r.Kind {
+		r = self.view.Resolve("/" + self.view.Names()[0])
+	}
+	if core.InMember != r.Kind {
+		return -fuse.ENOENT
+	}
 	stgo := syscall.Statfs_t{}
-	errc = errno(syscall_Statfs(path, &stgo))
+	errc = errno(syscall_Statfs(r.Real, &stgo))
 	copyFusestatfsFromGostatfs(stat, &stgo)
 	return
 }
@@ -55,47 +76,71 @@ func (self *viewFS) Statfs(path string, stat *fuse.Statfs_t) (errc int) {
 func (self *viewFS) Mknod(path string, mode uint32, dev uint64) (errc int) {
 	defer trace(path, mode, dev)(&errc)
 	defer setuidgid()()
-	path = self.real(path)
+	path, errc = self.real(path)
+	if 0 != errc {
+		return
+	}
 	return errno(syscall.Mknod(path, mode, int(dev)))
 }
 
 func (self *viewFS) Mkdir(path string, mode uint32) (errc int) {
 	defer trace(path, mode)(&errc)
 	defer setuidgid()()
-	path = self.real(path)
+	path, errc = self.real(path)
+	if 0 != errc {
+		return
+	}
 	return errno(syscall.Mkdir(path, mode))
 }
 
 func (self *viewFS) Unlink(path string) (errc int) {
 	defer trace(path)(&errc)
-	path = self.real(path)
+	path, errc = self.real(path)
+	if 0 != errc {
+		return
+	}
 	return errno(syscall.Unlink(path))
 }
 
 func (self *viewFS) Rmdir(path string) (errc int) {
 	defer trace(path)(&errc)
-	path = self.real(path)
+	path, errc = self.real(path)
+	if 0 != errc {
+		return
+	}
 	return errno(syscall.Rmdir(path))
 }
 
 func (self *viewFS) Link(oldpath string, newpath string) (errc int) {
 	defer trace(oldpath, newpath)(&errc)
 	defer setuidgid()()
-	oldpath = self.real(oldpath)
-	newpath = self.real(newpath)
+	oldpath, errc = self.real(oldpath)
+	if 0 != errc {
+		return
+	}
+	newpath, errc = self.real(newpath)
+	if 0 != errc {
+		return
+	}
 	return errno(syscall.Link(oldpath, newpath))
 }
 
 func (self *viewFS) Symlink(target string, newpath string) (errc int) {
 	defer trace(target, newpath)(&errc)
 	defer setuidgid()()
-	newpath = self.real(newpath)
+	newpath, errc = self.real(newpath)
+	if 0 != errc {
+		return
+	}
 	return errno(syscall.Symlink(target, newpath))
 }
 
 func (self *viewFS) Readlink(path string) (errc int, target string) {
 	defer trace(path)(&errc, &target)
-	path = self.real(path)
+	path, errc = self.real(path)
+	if 0 != errc {
+		return
+	}
 	buff := [1024]byte{}
 	n, e := syscall.Readlink(path, buff[:])
 	if nil != e {
@@ -107,26 +152,41 @@ func (self *viewFS) Readlink(path string) (errc int, target string) {
 func (self *viewFS) Rename(oldpath string, newpath string) (errc int) {
 	defer trace(oldpath, newpath)(&errc)
 	defer setuidgid()()
-	oldpath = self.real(oldpath)
-	newpath = self.real(newpath)
+	oldpath, errc = self.real(oldpath)
+	if 0 != errc {
+		return
+	}
+	newpath, errc = self.real(newpath)
+	if 0 != errc {
+		return
+	}
 	return errno(syscall.Rename(oldpath, newpath))
 }
 
 func (self *viewFS) Chmod(path string, mode uint32) (errc int) {
 	defer trace(path, mode)(&errc)
-	path = self.real(path)
+	path, errc = self.real(path)
+	if 0 != errc {
+		return
+	}
 	return errno(syscall.Chmod(path, mode))
 }
 
 func (self *viewFS) Chown(path string, uid uint32, gid uint32) (errc int) {
 	defer trace(path, uid, gid)(&errc)
-	path = self.real(path)
+	path, errc = self.real(path)
+	if 0 != errc {
+		return
+	}
 	return errno(syscall.Lchown(path, int(uid), int(gid)))
 }
 
 func (self *viewFS) Utimens(path string, tmsp1 []fuse.Timespec) (errc int) {
 	defer trace(path, tmsp1)(&errc)
-	path = self.real(path)
+	path, errc = self.real(path)
+	if 0 != errc {
+		return
+	}
 	tmsp := [2]syscall.Timespec{}
 	tmsp[0].Sec, tmsp[0].Nsec = tmsp1[0].Sec, tmsp1[0].Nsec
 	tmsp[1].Sec, tmsp[1].Nsec = tmsp1[1].Sec, tmsp1[1].Nsec
@@ -145,7 +205,10 @@ func (self *viewFS) Open(path string, flags int) (errc int, fh uint64) {
 }
 
 func (self *viewFS) open(path string, flags int, mode uint32) (errc int, fh uint64) {
-	path = self.real(path)
+	path, errc = self.real(path)
+	if 0 != errc {
+		return errc, ^uint64(0)
+	}
 	f, e := syscall.Open(path, flags, mode)
 	if nil != e {
 		return errno(e), ^uint64(0)
@@ -157,7 +220,14 @@ func (self *viewFS) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int
 	defer trace(path, fh)(&errc, stat)
 	stgo := syscall.Stat_t{}
 	if ^uint64(0) == fh {
-		path = self.real(path)
+		if core.Root == self.view.Resolve(path).Kind {
+			self.rootStat(stat)
+			return 0
+		}
+		path, errc = self.real(path)
+		if 0 != errc {
+			return
+		}
 		errc = errno(syscall.Lstat(path, &stgo))
 	} else {
 		errc = errno(syscall.Fstat(int(fh), &stgo))
@@ -169,7 +239,10 @@ func (self *viewFS) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int
 func (self *viewFS) Truncate(path string, size int64, fh uint64) (errc int) {
 	defer trace(path, size, fh)(&errc)
 	if ^uint64(0) == fh {
-		path = self.real(path)
+		path, errc = self.real(path)
+		if 0 != errc {
+			return
+		}
 		errc = errno(syscall.Truncate(path, size))
 	} else {
 		errc = errno(syscall.Ftruncate(int(fh), size))
@@ -205,9 +278,16 @@ func (self *viewFS) Fsync(path string, datasync bool, fh uint64) (errc int) {
 	return errno(syscall.Fsync(int(fh)))
 }
 
+// Opendir hands out no file descriptor for the view root, so Releasedir must not close one.
 func (self *viewFS) Opendir(path string) (errc int, fh uint64) {
 	defer trace(path)(&errc, &fh)
-	path = self.real(path)
+	if core.Root == self.view.Resolve(path).Kind {
+		return 0, ^uint64(0)
+	}
+	path, errc = self.real(path)
+	if 0 != errc {
+		return errc, ^uint64(0)
+	}
 	f, e := syscall.Open(path, syscall.O_RDONLY|syscall.O_DIRECTORY, 0)
 	if nil != e {
 		return errno(e), ^uint64(0)
@@ -220,15 +300,17 @@ func (self *viewFS) Readdir(path string,
 	ofst int64,
 	fh uint64) (errc int) {
 	defer trace(path, fill, ofst, fh)(&errc)
-	path = self.real(path)
-	file, e := os.Open(path)
-	if nil != e {
-		return errno(e)
-	}
-	defer file.Close()
-	nams, e := file.Readdirnames(0)
-	if nil != e {
-		return errno(e)
+	var nams []string
+	switch r := self.view.Resolve(path); r.Kind {
+	case core.Root:
+		nams = self.view.Names()
+	case core.InMember:
+		var e error
+		if nams, e = listDir(r.Real); nil != e {
+			return errno(e)
+		}
+	default:
+		return -fuse.ENOENT
 	}
 	nams = append([]string{".", ".."}, nams...)
 	for _, name := range nams {
@@ -239,8 +321,20 @@ func (self *viewFS) Readdir(path string,
 	return 0
 }
 
+func listDir(path string) ([]string, error) {
+	file, e := os.Open(path)
+	if nil != e {
+		return nil, e
+	}
+	defer file.Close()
+	return file.Readdirnames(0)
+}
+
 func (self *viewFS) Releasedir(path string, fh uint64) (errc int) {
 	defer trace(path, fh)(&errc)
+	if ^uint64(0) == fh {
+		return 0
+	}
 	return errno(syscall.Close(int(fh)))
 }
 
@@ -308,17 +402,15 @@ func main() {
 	if nil != err {
 		fatal(err)
 	}
-	if _, err := core.New(members); nil != err {
+	view, err := core.New(members)
+	if nil != err {
 		fatal(err)
-	}
-	if 1 < len(members) {
-		fatal(errors.New("more than one --member is not supported yet"))
 	}
 	mountpoint := flags.Arg(0)
 	if fi, err := os.Stat(mountpoint); nil != err || !fi.IsDir() {
 		fatal(fmt.Errorf("%s is not a directory", mountpoint))
 	}
-	fs := viewFS{root: members[0].Path}
+	fs := viewFS{view: view, mounted: fuse.Now()}
 	_host = fuse.NewFileSystemHost(&fs)
 	// Mount returns false after Ctrl-C too, so its result can't tell a failed mount from a clean exit.
 	_host.Mount(mountpoint, flags.Args()[1:])
