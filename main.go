@@ -11,7 +11,7 @@ import (
 	"github.com/winfsp/cgofuse/fuse"
 )
 
-func trace(vals ...interface{}) func(vals ...interface{}) {
+func trace(vals ...any) func(vals ...any) {
 	uid, gid, _ := fuse.Getcontext()
 	return shared.Trace(1, fmt.Sprintf("[uid=%v,gid=%v]", uid, gid), vals...)
 }
@@ -20,8 +20,7 @@ func errno(err error) int {
 	if nil == err {
 		return 0
 	}
-	var en syscall.Errno
-	if errors.As(err, &en) {
+	if en, ok := errors.AsType[syscall.Errno](err); ok {
 		return -int(en)
 	}
 	return -fuse.EIO
