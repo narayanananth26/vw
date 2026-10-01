@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestParseMember(t *testing.T) {
 	tests := []struct {
@@ -74,5 +77,51 @@ func TestNewRejectsDotPathWithoutName(t *testing.T) {
 	}
 	if _, err := New([]Member{m}); nil == err {
 		t.Error("New accepted a member named after the path .")
+	}
+}
+
+func newTestView(t *testing.T) *View {
+	t.Helper()
+	view, err := New([]Member{
+		{Name: "docs", Path: "/home/notes"},
+		{Name: "api", Path: "/home/b", ReadOnly: true},
+		{Name: "c", Path: "/home/c/"},
+	})
+	if nil != err {
+		t.Fatal(err)
+	}
+	return view
+}
+
+func TestResolve(t *testing.T) {
+	view := newTestView(t)
+	tests := []struct {
+		path string
+		want Resolved
+	}{
+		{"/", Resolved{Kind: Root}},
+		{"", Resolved{Kind: Root}},
+		{"/api", Resolved{Kind: InMember, Real: "/home/b", ReadOnly: true, MemberRoot: true}},
+		{"/api/", Resolved{Kind: InMember, Real: "/home/b", ReadOnly: true, MemberRoot: true}},
+		{"/api/src/main.go", Resolved{Kind: InMember, Real: "/home/b/src/main.go", ReadOnly: true}},
+		{"/docs/a.txt", Resolved{Kind: InMember, Real: "/home/notes/a.txt"}},
+		{"/c/x", Resolved{Kind: InMember, Real: "/home/c/x"}},
+		{"/nope", Resolved{Kind: NotFound}},
+		{"/nope/x", Resolved{Kind: NotFound}},
+		{"/api/../docs/a.txt", Resolved{Kind: InMember, Real: "/home/notes/a.txt"}},
+		{"/../api/x", Resolved{Kind: InMember, Real: "/home/b/x", ReadOnly: true}},
+		{"/api/../../etc/passwd", Resolved{Kind: NotFound}},
+	}
+	for _, tt := range tests {
+		if got := view.Resolve(tt.path); tt.want != got {
+			t.Errorf("Resolve(%q) = %+v, want %+v", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestNames(t *testing.T) {
+	want := []string{"api", "c", "docs"}
+	if got := newTestView(t).Names(); !slices.Equal(want, got) {
+		t.Errorf("Names() = %v, want %v", got, want)
 	}
 }

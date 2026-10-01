@@ -3,7 +3,9 @@ package core
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -12,6 +14,23 @@ type Member struct {
 	Name     string
 	Path     string
 	ReadOnly bool
+}
+
+// Kind says what a view path points at.
+type Kind int
+
+const (
+	NotFound Kind = iota
+	Root
+	InMember
+)
+
+// Resolved is the answer to what a view path means.
+type Resolved struct {
+	Kind       Kind
+	Real       string // real path, set when Kind is InMember
+	ReadOnly   bool   // the member holding the path is read-only
+	MemberRoot bool   // the path is the member's own directory
 }
 
 // View is the set of members behind one mount.
@@ -61,4 +80,33 @@ func New(members []Member) (*View, error) {
 
 func validName(name string) bool {
 	return "" != name && "." != name && ".." != name && !strings.Contains(name, "/")
+}
+
+// Resolve maps a view path to the real path it stands for.
+func (self *View) Resolve(viewPath string) Resolved {
+	clean := path.Clean("/" + viewPath)
+	if "/" == clean {
+		return Resolved{Kind: Root}
+	}
+	name, rest, _ := strings.Cut(clean[1:], "/")
+	m, ok := self.members[name]
+	if !ok {
+		return Resolved{Kind: NotFound}
+	}
+	return Resolved{
+		Kind:       InMember,
+		Real:       filepath.Join(m.Path, rest),
+		ReadOnly:   m.ReadOnly,
+		MemberRoot: "" == rest,
+	}
+}
+
+// Names lists the member names in order, which is what the view root contains.
+func (self *View) Names() []string {
+	names := make([]string, 0, len(self.members))
+	for name := range self.members {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
