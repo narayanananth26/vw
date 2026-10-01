@@ -30,16 +30,16 @@ var (
 	_host *fuse.FileSystemHost
 )
 
-type Ptfs struct {
+type viewFS struct {
 	fuse.FileSystemBase
 	root string
 }
 
-func (self *Ptfs) real(path string) string {
+func (self *viewFS) real(path string) string {
 	return filepath.Join(self.root, path)
 }
 
-func (self *Ptfs) Statfs(path string, stat *fuse.Statfs_t) (errc int) {
+func (self *viewFS) Statfs(path string, stat *fuse.Statfs_t) (errc int) {
 	defer trace(path)(&errc, stat)
 	path = self.real(path)
 	stgo := syscall.Statfs_t{}
@@ -48,33 +48,33 @@ func (self *Ptfs) Statfs(path string, stat *fuse.Statfs_t) (errc int) {
 	return
 }
 
-func (self *Ptfs) Mknod(path string, mode uint32, dev uint64) (errc int) {
+func (self *viewFS) Mknod(path string, mode uint32, dev uint64) (errc int) {
 	defer trace(path, mode, dev)(&errc)
 	defer setuidgid()()
 	path = self.real(path)
 	return errno(syscall.Mknod(path, mode, int(dev)))
 }
 
-func (self *Ptfs) Mkdir(path string, mode uint32) (errc int) {
+func (self *viewFS) Mkdir(path string, mode uint32) (errc int) {
 	defer trace(path, mode)(&errc)
 	defer setuidgid()()
 	path = self.real(path)
 	return errno(syscall.Mkdir(path, mode))
 }
 
-func (self *Ptfs) Unlink(path string) (errc int) {
+func (self *viewFS) Unlink(path string) (errc int) {
 	defer trace(path)(&errc)
 	path = self.real(path)
 	return errno(syscall.Unlink(path))
 }
 
-func (self *Ptfs) Rmdir(path string) (errc int) {
+func (self *viewFS) Rmdir(path string) (errc int) {
 	defer trace(path)(&errc)
 	path = self.real(path)
 	return errno(syscall.Rmdir(path))
 }
 
-func (self *Ptfs) Link(oldpath string, newpath string) (errc int) {
+func (self *viewFS) Link(oldpath string, newpath string) (errc int) {
 	defer trace(oldpath, newpath)(&errc)
 	defer setuidgid()()
 	oldpath = self.real(oldpath)
@@ -82,14 +82,14 @@ func (self *Ptfs) Link(oldpath string, newpath string) (errc int) {
 	return errno(syscall.Link(oldpath, newpath))
 }
 
-func (self *Ptfs) Symlink(target string, newpath string) (errc int) {
+func (self *viewFS) Symlink(target string, newpath string) (errc int) {
 	defer trace(target, newpath)(&errc)
 	defer setuidgid()()
 	newpath = self.real(newpath)
 	return errno(syscall.Symlink(target, newpath))
 }
 
-func (self *Ptfs) Readlink(path string) (errc int, target string) {
+func (self *viewFS) Readlink(path string) (errc int, target string) {
 	defer trace(path)(&errc, &target)
 	path = self.real(path)
 	buff := [1024]byte{}
@@ -100,7 +100,7 @@ func (self *Ptfs) Readlink(path string) (errc int, target string) {
 	return 0, string(buff[:n])
 }
 
-func (self *Ptfs) Rename(oldpath string, newpath string) (errc int) {
+func (self *viewFS) Rename(oldpath string, newpath string) (errc int) {
 	defer trace(oldpath, newpath)(&errc)
 	defer setuidgid()()
 	oldpath = self.real(oldpath)
@@ -108,19 +108,19 @@ func (self *Ptfs) Rename(oldpath string, newpath string) (errc int) {
 	return errno(syscall.Rename(oldpath, newpath))
 }
 
-func (self *Ptfs) Chmod(path string, mode uint32) (errc int) {
+func (self *viewFS) Chmod(path string, mode uint32) (errc int) {
 	defer trace(path, mode)(&errc)
 	path = self.real(path)
 	return errno(syscall.Chmod(path, mode))
 }
 
-func (self *Ptfs) Chown(path string, uid uint32, gid uint32) (errc int) {
+func (self *viewFS) Chown(path string, uid uint32, gid uint32) (errc int) {
 	defer trace(path, uid, gid)(&errc)
 	path = self.real(path)
 	return errno(syscall.Lchown(path, int(uid), int(gid)))
 }
 
-func (self *Ptfs) Utimens(path string, tmsp1 []fuse.Timespec) (errc int) {
+func (self *viewFS) Utimens(path string, tmsp1 []fuse.Timespec) (errc int) {
 	defer trace(path, tmsp1)(&errc)
 	path = self.real(path)
 	tmsp := [2]syscall.Timespec{}
@@ -129,18 +129,18 @@ func (self *Ptfs) Utimens(path string, tmsp1 []fuse.Timespec) (errc int) {
 	return errno(syscall.UtimesNano(path, tmsp[:]))
 }
 
-func (self *Ptfs) Create(path string, flags int, mode uint32) (errc int, fh uint64) {
+func (self *viewFS) Create(path string, flags int, mode uint32) (errc int, fh uint64) {
 	defer trace(path, flags, mode)(&errc, &fh)
 	defer setuidgid()()
 	return self.open(path, flags, mode)
 }
 
-func (self *Ptfs) Open(path string, flags int) (errc int, fh uint64) {
+func (self *viewFS) Open(path string, flags int) (errc int, fh uint64) {
 	defer trace(path, flags)(&errc, &fh)
 	return self.open(path, flags, 0)
 }
 
-func (self *Ptfs) open(path string, flags int, mode uint32) (errc int, fh uint64) {
+func (self *viewFS) open(path string, flags int, mode uint32) (errc int, fh uint64) {
 	path = self.real(path)
 	f, e := syscall.Open(path, flags, mode)
 	if nil != e {
@@ -149,7 +149,7 @@ func (self *Ptfs) open(path string, flags int, mode uint32) (errc int, fh uint64
 	return 0, uint64(f)
 }
 
-func (self *Ptfs) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int) {
+func (self *viewFS) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int) {
 	defer trace(path, fh)(&errc, stat)
 	stgo := syscall.Stat_t{}
 	if ^uint64(0) == fh {
@@ -162,7 +162,7 @@ func (self *Ptfs) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int) 
 	return
 }
 
-func (self *Ptfs) Truncate(path string, size int64, fh uint64) (errc int) {
+func (self *viewFS) Truncate(path string, size int64, fh uint64) (errc int) {
 	defer trace(path, size, fh)(&errc)
 	if ^uint64(0) == fh {
 		path = self.real(path)
@@ -173,7 +173,7 @@ func (self *Ptfs) Truncate(path string, size int64, fh uint64) (errc int) {
 	return
 }
 
-func (self *Ptfs) Read(path string, buff []byte, ofst int64, fh uint64) (n int) {
+func (self *viewFS) Read(path string, buff []byte, ofst int64, fh uint64) (n int) {
 	defer trace(path, buff, ofst, fh)(&n)
 	n, e := syscall.Pread(int(fh), buff, ofst)
 	if nil != e {
@@ -182,7 +182,7 @@ func (self *Ptfs) Read(path string, buff []byte, ofst int64, fh uint64) (n int) 
 	return n
 }
 
-func (self *Ptfs) Write(path string, buff []byte, ofst int64, fh uint64) (n int) {
+func (self *viewFS) Write(path string, buff []byte, ofst int64, fh uint64) (n int) {
 	defer trace(path, buff, ofst, fh)(&n)
 	n, e := syscall.Pwrite(int(fh), buff, ofst)
 	if nil != e {
@@ -191,17 +191,17 @@ func (self *Ptfs) Write(path string, buff []byte, ofst int64, fh uint64) (n int)
 	return n
 }
 
-func (self *Ptfs) Release(path string, fh uint64) (errc int) {
+func (self *viewFS) Release(path string, fh uint64) (errc int) {
 	defer trace(path, fh)(&errc)
 	return errno(syscall.Close(int(fh)))
 }
 
-func (self *Ptfs) Fsync(path string, datasync bool, fh uint64) (errc int) {
+func (self *viewFS) Fsync(path string, datasync bool, fh uint64) (errc int) {
 	defer trace(path, datasync, fh)(&errc)
 	return errno(syscall.Fsync(int(fh)))
 }
 
-func (self *Ptfs) Opendir(path string) (errc int, fh uint64) {
+func (self *viewFS) Opendir(path string) (errc int, fh uint64) {
 	defer trace(path)(&errc, &fh)
 	path = self.real(path)
 	f, e := syscall.Open(path, syscall.O_RDONLY|syscall.O_DIRECTORY, 0)
@@ -211,7 +211,7 @@ func (self *Ptfs) Opendir(path string) (errc int, fh uint64) {
 	return 0, uint64(f)
 }
 
-func (self *Ptfs) Readdir(path string,
+func (self *viewFS) Readdir(path string,
 	fill func(name string, stat *fuse.Stat_t, ofst int64) bool,
 	ofst int64,
 	fh uint64) (errc int) {
@@ -235,7 +235,7 @@ func (self *Ptfs) Readdir(path string,
 	return 0
 }
 
-func (self *Ptfs) Releasedir(path string, fh uint64) (errc int) {
+func (self *viewFS) Releasedir(path string, fh uint64) (errc int) {
 	defer trace(path, fh)(&errc)
 	return errno(syscall.Close(int(fh)))
 }
@@ -257,8 +257,8 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	ptfs := Ptfs{root: root}
-	_host = fuse.NewFileSystemHost(&ptfs)
+	fs := viewFS{root: root}
+	_host = fuse.NewFileSystemHost(&fs)
 	// Mount returns false after Ctrl-C too, so its result can't tell a failed mount from a clean exit.
 	_host.Mount(os.Args[3], os.Args[4:])
 }
