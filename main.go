@@ -49,6 +49,16 @@ func (self *viewFS) real(path string) (string, int) {
 	return r.Real, 0
 }
 
+func (self *viewFS) realWrite(path string) (string, int) {
+	real, e := self.view.ResolveWrite(path)
+	return real, errno(e)
+}
+
+func (self *viewFS) realRemove(path string) (string, int) {
+	real, e := self.view.ResolveRemove(path)
+	return real, errno(e)
+}
+
 // rootStat describes the view root, which has no real directory behind it.
 func (self *viewFS) rootStat(stat *fuse.Stat_t) {
 	*stat = fuse.Stat_t{}
@@ -76,7 +86,7 @@ func (self *viewFS) Statfs(path string, stat *fuse.Statfs_t) (errc int) {
 func (self *viewFS) Mknod(path string, mode uint32, dev uint64) (errc int) {
 	defer trace(path, mode, dev)(&errc)
 	defer setuidgid()()
-	path, errc = self.real(path)
+	path, errc = self.realWrite(path)
 	if 0 != errc {
 		return
 	}
@@ -86,7 +96,7 @@ func (self *viewFS) Mknod(path string, mode uint32, dev uint64) (errc int) {
 func (self *viewFS) Mkdir(path string, mode uint32) (errc int) {
 	defer trace(path, mode)(&errc)
 	defer setuidgid()()
-	path, errc = self.real(path)
+	path, errc = self.realWrite(path)
 	if 0 != errc {
 		return
 	}
@@ -95,7 +105,7 @@ func (self *viewFS) Mkdir(path string, mode uint32) (errc int) {
 
 func (self *viewFS) Unlink(path string) (errc int) {
 	defer trace(path)(&errc)
-	path, errc = self.real(path)
+	path, errc = self.realRemove(path)
 	if 0 != errc {
 		return
 	}
@@ -104,7 +114,7 @@ func (self *viewFS) Unlink(path string) (errc int) {
 
 func (self *viewFS) Rmdir(path string) (errc int) {
 	defer trace(path)(&errc)
-	path, errc = self.real(path)
+	path, errc = self.realRemove(path)
 	if 0 != errc {
 		return
 	}
@@ -128,7 +138,7 @@ func (self *viewFS) Link(oldpath string, newpath string) (errc int) {
 func (self *viewFS) Symlink(target string, newpath string) (errc int) {
 	defer trace(target, newpath)(&errc)
 	defer setuidgid()()
-	newpath, errc = self.real(newpath)
+	newpath, errc = self.realWrite(newpath)
 	if 0 != errc {
 		return
 	}
@@ -165,7 +175,7 @@ func (self *viewFS) Rename(oldpath string, newpath string) (errc int) {
 
 func (self *viewFS) Chmod(path string, mode uint32) (errc int) {
 	defer trace(path, mode)(&errc)
-	path, errc = self.real(path)
+	path, errc = self.realWrite(path)
 	if 0 != errc {
 		return
 	}
@@ -174,7 +184,7 @@ func (self *viewFS) Chmod(path string, mode uint32) (errc int) {
 
 func (self *viewFS) Chown(path string, uid uint32, gid uint32) (errc int) {
 	defer trace(path, uid, gid)(&errc)
-	path, errc = self.real(path)
+	path, errc = self.realWrite(path)
 	if 0 != errc {
 		return
 	}
@@ -183,7 +193,7 @@ func (self *viewFS) Chown(path string, uid uint32, gid uint32) (errc int) {
 
 func (self *viewFS) Utimens(path string, tmsp1 []fuse.Timespec) (errc int) {
 	defer trace(path, tmsp1)(&errc)
-	path, errc = self.real(path)
+	path, errc = self.realWrite(path)
 	if 0 != errc {
 		return
 	}
@@ -196,16 +206,21 @@ func (self *viewFS) Utimens(path string, tmsp1 []fuse.Timespec) (errc int) {
 func (self *viewFS) Create(path string, flags int, mode uint32) (errc int, fh uint64) {
 	defer trace(path, flags, mode)(&errc, &fh)
 	defer setuidgid()()
-	return self.open(path, flags, mode)
+	path, errc = self.realWrite(path)
+	return self.open(path, errc, flags, mode)
 }
 
 func (self *viewFS) Open(path string, flags int) (errc int, fh uint64) {
 	defer trace(path, flags)(&errc, &fh)
-	return self.open(path, flags, 0)
+	if syscall.O_RDONLY != flags&syscall.O_ACCMODE || 0 != flags&syscall.O_TRUNC {
+		path, errc = self.realWrite(path)
+	} else {
+		path, errc = self.real(path)
+	}
+	return self.open(path, errc, flags, 0)
 }
 
-func (self *viewFS) open(path string, flags int, mode uint32) (errc int, fh uint64) {
-	path, errc = self.real(path)
+func (self *viewFS) open(path string, errc int, flags int, mode uint32) (int, uint64) {
 	if 0 != errc {
 		return errc, ^uint64(0)
 	}
@@ -239,7 +254,7 @@ func (self *viewFS) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int
 func (self *viewFS) Truncate(path string, size int64, fh uint64) (errc int) {
 	defer trace(path, size, fh)(&errc)
 	if ^uint64(0) == fh {
-		path, errc = self.real(path)
+		path, errc = self.realWrite(path)
 		if 0 != errc {
 			return
 		}
