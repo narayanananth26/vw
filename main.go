@@ -59,6 +59,11 @@ func (self *viewFS) realRemove(path string) (string, int) {
 	return real, errno(e)
 }
 
+func (self *viewFS) realPair(oldpath, newpath string) (string, string, int) {
+	oldreal, newreal, e := self.view.ResolvePair(oldpath, newpath)
+	return oldreal, newreal, errno(e)
+}
+
 // rootStat describes the view root, which has no real directory behind it.
 func (self *viewFS) rootStat(stat *fuse.Stat_t) {
 	*stat = fuse.Stat_t{}
@@ -124,11 +129,7 @@ func (self *viewFS) Rmdir(path string) (errc int) {
 func (self *viewFS) Link(oldpath string, newpath string) (errc int) {
 	defer trace(oldpath, newpath)(&errc)
 	defer setuidgid()()
-	oldpath, errc = self.real(oldpath)
-	if 0 != errc {
-		return
-	}
-	newpath, errc = self.real(newpath)
+	oldpath, newpath, errc = self.realPair(oldpath, newpath)
 	if 0 != errc {
 		return
 	}
@@ -162,11 +163,7 @@ func (self *viewFS) Readlink(path string) (errc int, target string) {
 func (self *viewFS) Rename(oldpath string, newpath string) (errc int) {
 	defer trace(oldpath, newpath)(&errc)
 	defer setuidgid()()
-	oldpath, errc = self.real(oldpath)
-	if 0 != errc {
-		return
-	}
-	newpath, errc = self.real(newpath)
+	oldpath, newpath, errc = self.realPair(oldpath, newpath)
 	if 0 != errc {
 		return
 	}
