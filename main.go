@@ -2,13 +2,17 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/winfsp/cgofuse/examples/shared"
 	"github.com/winfsp/cgofuse/fuse"
+
+	"vw/core"
 )
 
 func trace(vals ...any) func(vals ...any) {
@@ -240,25 +244,82 @@ func (self *viewFS) Releasedir(path string, fh uint64) (errc int) {
 	return errno(syscall.Close(int(fh)))
 }
 
+type memberFlags []string
+
+func (self *memberFlags) String() string {
+	return strings.Join(*self, " ")
+}
+
+func (self *memberFlags) Set(spec string) error {
+	*self = append(*self, spec)
+	return nil
+}
+
+// loadMembers parses each --member spec and points it at a real, symlink-free directory.
+func loadMembers(specs []string) ([]core.Member, error) {
+	members := make([]core.Member, 0, len(specs))
+	for _, spec := range specs {
+		m, e := core.ParseMember(spec)
+		if nil != e {
+			return nil, e
+		}
+		abs, e := filepath.Abs(m.Path)
+		if nil != e {
+			return nil, e
+		}
+		m.Path, e = filepath.EvalSymlinks(abs)
+		if nil != e {
+			return nil, e
+		}
+		fi, e := os.Stat(m.Path)
+		if nil != e {
+			return nil, e
+		}
+		if !fi.IsDir() {
+			return nil, fmt.Errorf("%s is not a directory", m.Path)
+		}
+		members = append(members, m)
+	}
+	return members, nil
+}
+
+func fatal(err error) {
+	fmt.Fprintf(os.Stderr, "vw: %v\n", err)
+	os.Exit(1)
+}
+
 func main() {
 	syscall.Umask(0)
-	if 4 > len(os.Args) || "mount" != os.Args[1] {
-		fmt.Fprintln(os.Stderr, "usage: vw mount <src> <mountpoint> [fuse opts...]")
+	usage := "usage: vw mount --member path[:name[:ro]]... <mountpoint> [fuse opts...]"
+	if 2 > len(os.Args) || "mount" != os.Args[1] {
+		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
-	root, err := filepath.Abs(os.Args[2])
+	var specs memberFlags
+	flags := flag.NewFlagSet("mount", flag.ExitOnError)
+	flags.Usage = func() { fmt.Fprintln(os.Stderr, usage) }
+	flags.Var(&specs, "member", "folder to show, as path[:name[:ro]]; repeat for more")
+	flags.Parse(os.Args[2:])
+	if 0 == len(specs) || 1 > flags.NArg() {
+		flags.Usage()
+		os.Exit(2)
+	}
+	members, err := loadMembers(specs)
 	if nil != err {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		fatal(err)
 	}
-	for _, dir := range os.Args[2:4] {
-		if fi, err := os.Stat(dir); nil != err || !fi.IsDir() {
-			fmt.Fprintf(os.Stderr, "vw: %s is not a directory\n", dir)
-			os.Exit(1)
-		}
+	if _, err := core.New(members); nil != err {
+		fatal(err)
 	}
-	fs := viewFS{root: root}
+	if 1 < len(members) {
+		fatal(errors.New("more than one --member is not supported yet"))
+	}
+	mountpoint := flags.Arg(0)
+	if fi, err := os.Stat(mountpoint); nil != err || !fi.IsDir() {
+		fatal(fmt.Errorf("%s is not a directory", mountpoint))
+	}
+	fs := viewFS{root: members[0].Path}
 	_host = fuse.NewFileSystemHost(&fs)
 	// Mount returns false after Ctrl-C too, so its result can't tell a failed mount from a clean exit.
-	_host.Mount(os.Args[3], os.Args[4:])
+	_host.Mount(mountpoint, flags.Args()[1:])
 }
