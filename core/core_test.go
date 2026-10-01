@@ -1,7 +1,9 @@
 package core
 
 import (
+	"errors"
 	"slices"
+	"syscall"
 	"testing"
 )
 
@@ -123,5 +125,76 @@ func TestNames(t *testing.T) {
 	want := []string{"api", "c", "docs"}
 	if got := newTestView(t).Names(); !slices.Equal(want, got) {
 		t.Errorf("Names() = %v, want %v", got, want)
+	}
+}
+
+func TestResolveWrite(t *testing.T) {
+	view := newTestView(t)
+	tests := []struct {
+		path string
+		real string
+		err  error
+	}{
+		{"/docs/a.txt", "/home/notes/a.txt", nil},
+		{"/docs", "/home/notes", nil},
+		{"/api/a.txt", "", syscall.EROFS},
+		{"/api", "", syscall.EROFS},
+		{"/", "", syscall.EACCES},
+		{"/newfile", "", syscall.EACCES},
+		{"/nope/x", "", syscall.ENOENT},
+	}
+	for _, tt := range tests {
+		real, err := view.ResolveWrite(tt.path)
+		if tt.real != real || !errors.Is(err, tt.err) {
+			t.Errorf("ResolveWrite(%q) = %q, %v, want %q, %v", tt.path, real, err, tt.real, tt.err)
+		}
+	}
+}
+
+func TestResolveRemove(t *testing.T) {
+	view := newTestView(t)
+	tests := []struct {
+		path string
+		real string
+		err  error
+	}{
+		{"/docs/a.txt", "/home/notes/a.txt", nil},
+		{"/docs", "", syscall.EBUSY},
+		{"/docs/", "", syscall.EBUSY},
+		{"/api/a.txt", "", syscall.EROFS},
+		{"/api", "", syscall.EROFS},
+		{"/", "", syscall.EACCES},
+	}
+	for _, tt := range tests {
+		real, err := view.ResolveRemove(tt.path)
+		if tt.real != real || !errors.Is(err, tt.err) {
+			t.Errorf("ResolveRemove(%q) = %q, %v, want %q, %v", tt.path, real, err, tt.real, tt.err)
+		}
+	}
+}
+
+func TestResolvePair(t *testing.T) {
+	view := newTestView(t)
+	tests := []struct {
+		old, new         string
+		oldReal, newReal string
+		err              error
+	}{
+		{"/docs/a", "/docs/b", "/home/notes/a", "/home/notes/b", nil},
+		{"/docs/a", "/c/a", "", "", syscall.EXDEV},
+		{"/docs/a", "/api/a", "", "", syscall.EXDEV},
+		{"/api/a", "/docs/a", "", "", syscall.EXDEV},
+		{"/api/a", "/api/b", "", "", syscall.EROFS},
+		{"/docs", "/docs/x", "", "", syscall.EBUSY},
+		{"/docs/a", "/docs", "", "", syscall.EBUSY},
+		{"/docs/a", "/newtop", "", "", syscall.EACCES},
+		{"/nope/x", "/docs/a", "", "", syscall.ENOENT},
+	}
+	for _, tt := range tests {
+		oldReal, newReal, err := view.ResolvePair(tt.old, tt.new)
+		if tt.oldReal != oldReal || tt.newReal != newReal || !errors.Is(err, tt.err) {
+			t.Errorf("ResolvePair(%q, %q) = %q, %q, %v, want %q, %q, %v",
+				tt.old, tt.new, oldReal, newReal, err, tt.oldReal, tt.newReal, tt.err)
+		}
 	}
 }

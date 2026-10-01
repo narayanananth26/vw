@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 )
 
 // Member is a real directory shown in the view under Name.
@@ -82,13 +83,19 @@ func validName(name string) bool {
 	return "" != name && "." != name && ".." != name && !strings.Contains(name, "/")
 }
 
+// split cleans a view path and cuts it into the member name and the rest.
+func split(viewPath string) (name, rest string) {
+	clean := path.Clean("/" + viewPath)
+	name, rest, _ = strings.Cut(clean[1:], "/")
+	return name, rest
+}
+
 // Resolve maps a view path to the real path it stands for.
 func (self *View) Resolve(viewPath string) Resolved {
-	clean := path.Clean("/" + viewPath)
-	if "/" == clean {
+	name, rest := split(viewPath)
+	if "" == name {
 		return Resolved{Kind: Root}
 	}
-	name, rest, _ := strings.Cut(clean[1:], "/")
 	m, ok := self.members[name]
 	if !ok {
 		return Resolved{Kind: NotFound}
@@ -109,4 +116,64 @@ func (self *View) Names() []string {
 	}
 	slices.Sort(names)
 	return names
+}
+
+// writeErr says why r cannot be written, or nil. The root takes no files until it has a scratch directory.
+func writeErr(viewPath string, r Resolved) error {
+	switch r.Kind {
+	case Root:
+		return syscall.EACCES
+	case NotFound:
+		if _, rest := split(viewPath); "" == rest {
+			return syscall.EACCES
+		}
+		return syscall.ENOENT
+	}
+	if r.ReadOnly {
+		return syscall.EROFS
+	}
+	return nil
+}
+
+// ResolveWrite resolves a path that is about to be created or changed.
+func (self *View) ResolveWrite(viewPath string) (string, error) {
+	r := self.Resolve(viewPath)
+	if err := writeErr(viewPath, r); nil != err {
+		return "", err
+	}
+	return r.Real, nil
+}
+
+// ResolveRemove resolves a path that is about to be deleted. A member's own directory is refused,
+// so removing it can never delete the real folder.
+func (self *View) ResolveRemove(viewPath string) (string, error) {
+	r := self.Resolve(viewPath)
+	if err := writeErr(viewPath, r); nil != err {
+		return "", err
+	}
+	if r.MemberRoot {
+		return "", syscall.EBUSY
+	}
+	return r.Real, nil
+}
+
+// ResolvePair resolves the two paths of a rename or link. Paths in different members are on
+// different filesystems as far as tools are concerned, so they get EXDEV and mv falls back to a copy.
+func (self *View) ResolvePair(oldPath, newPath string) (string, string, error) {
+	oldR, newR := self.Resolve(oldPath), self.Resolve(newPath)
+	oldName, _ := split(oldPath)
+	newName, _ := split(newPath)
+	if InMember == oldR.Kind && InMember == newR.Kind && oldName != newName {
+		return "", "", syscall.EXDEV
+	}
+	if err := writeErr(oldPath, oldR); nil != err {
+		return "", "", err
+	}
+	if err := writeErr(newPath, newR); nil != err {
+		return "", "", err
+	}
+	if oldR.MemberRoot || newR.MemberRoot {
+		return "", "", syscall.EBUSY
+	}
+	return oldR.Real, newR.Real, nil
 }
