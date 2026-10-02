@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"reflect"
 	"slices"
 	"syscall"
 	"testing"
@@ -24,7 +25,7 @@ func TestParseMember(t *testing.T) {
 			t.Errorf("ParseMember(%q) error: %v", tt.spec, err)
 			continue
 		}
-		if tt.want != got {
+		if !reflect.DeepEqual(tt.want, got) {
 			t.Errorf("ParseMember(%q) = %+v, want %+v", tt.spec, got, tt.want)
 		}
 	}

@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+
+	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 )
 
 // Member is a real directory shown in the view under Name.
@@ -15,6 +17,7 @@ type Member struct {
 	Name     string
 	Path     string
 	ReadOnly bool
+	Exclude  []string
 }
 
 // Kind says what a view path points at.
@@ -36,7 +39,18 @@ type Resolved struct {
 
 // View is the set of members behind one mount.
 type View struct {
-	members map[string]Member
+	members       map[string]Member
+	exclude       gitignore.Matcher
+	memberExclude map[string]gitignore.Matcher
+}
+
+type Option func(*View)
+
+// WithExclude hides paths matching the gitignore-style patterns across the whole view.
+func WithExclude(patterns ...string) Option {
+	return func(view *View) {
+		view.exclude = compile(patterns)
+	}
 }
 
 // ParseMember reads path[:name[:ro]]. An empty name defaults to the last element of path.
@@ -65,8 +79,14 @@ func ParseMember(spec string) (Member, error) {
 }
 
 // New builds a view, rejecting member names that are unusable or used twice.
-func New(members []Member) (*View, error) {
-	view := &View{members: make(map[string]Member, len(members))}
+func New(members []Member, opts ...Option) (*View, error) {
+	view := &View{
+		members:       make(map[string]Member, len(members)),
+		memberExclude: make(map[string]gitignore.Matcher, len(members)),
+	}
+	for _, opt := range opts {
+		opt(view)
+	}
 	for _, m := range members {
 		if !validName(m.Name) {
 			return nil, fmt.Errorf("invalid member name %q for %s, name it with path:name", m.Name, m.Path)
@@ -75,6 +95,7 @@ func New(members []Member) (*View, error) {
 			return nil, fmt.Errorf("duplicate member name %q, name one with path:name", m.Name)
 		}
 		view.members[m.Name] = m
+		view.memberExclude[m.Name] = compile(m.Exclude)
 	}
 	return view, nil
 }
