@@ -350,14 +350,14 @@ func (self *viewFS) Releasedir(path string, fh uint64) (errc int) {
 	return errno(syscall.Close(int(fh)))
 }
 
-type memberFlags []string
+type listFlag []string
 
-func (self *memberFlags) String() string {
+func (self *listFlag) String() string {
 	return strings.Join(*self, " ")
 }
 
-func (self *memberFlags) Set(spec string) error {
-	*self = append(*self, spec)
+func (self *listFlag) Set(value string) error {
+	*self = append(*self, value)
 	return nil
 }
 
@@ -401,7 +401,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
-	var specs memberFlags
+	var specs listFlag
 	flags := flag.NewFlagSet("mount", flag.ExitOnError)
 	flags.Usage = func() { fmt.Fprintln(os.Stderr, usage) }
 	flags.Var(&specs, "member", "folder to show, as path[:name[:ro]]; repeat for more")
