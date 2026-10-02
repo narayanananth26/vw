@@ -40,10 +40,9 @@ type viewFS struct {
 	mounted fuse.Timespec
 }
 
-// real maps a view path to the real path inside a member, or an errno when it has none.
 func (self *viewFS) real(path string) (string, int) {
 	r := self.view.Resolve(path)
-	if core.InMember != r.Kind {
+	if "" == r.Real {
 		return "", -fuse.ENOENT
 	}
 	return r.Real, 0
@@ -79,7 +78,7 @@ func (self *viewFS) Statfs(path string, stat *fuse.Statfs_t) (errc int) {
 	if core.Root == r.Kind {
 		r = self.view.Resolve("/" + self.view.Names()[0])
 	}
-	if core.InMember != r.Kind {
+	if "" == r.Real {
 		return -fuse.ENOENT
 	}
 	stgo := syscall.Statfs_t{}
