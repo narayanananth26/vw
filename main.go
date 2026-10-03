@@ -384,14 +384,65 @@ func (self *listFlag) Set(value string) error {
 	return nil
 }
 
-// loadMembers parses each --member spec and points it at a real, symlink-free directory.
-func loadMembers(specs []string) ([]core.Member, error) {
-	members := make([]core.Member, 0, len(specs))
-	for _, spec := range specs {
-		m, e := core.ParseMember(spec)
-		if nil != e {
-			return nil, e
-		}
+type memberFlag []core.Member
+
+func (self *memberFlag) String() string {
+	paths := make([]string, len(*self))
+	for i, m := range *self {
+		paths[i] = m.Path
+	}
+	return strings.Join(paths, " ")
+}
+
+func (self *memberFlag) Set(spec string) error {
+	m, e := core.ParseMember(spec)
+	if nil != e {
+		return e
+	}
+	*self = append(*self, m)
+	return nil
+}
+
+// memberFilterFlag adds a pattern to the member given by the closest --member before it.
+type memberFilterFlag struct {
+	members *memberFlag
+	exclude bool
+}
+
+func (self *memberFilterFlag) String() string {
+	return ""
+}
+
+func (self *memberFilterFlag) Set(pattern string) error {
+	if 0 == len(*self.members) {
+		return errors.New("must come after a --member")
+	}
+	m := &(*self.members)[len(*self.members)-1]
+	if self.exclude {
+		m.Exclude = append(m.Exclude, pattern)
+	} else {
+		m.Include = append(m.Include, pattern)
+	}
+	return nil
+}
+
+type mountFlags struct {
+	include, exclude listFlag
+	members          memberFlag
+}
+
+func (self *mountFlags) register(set *flag.FlagSet) {
+	set.Var(&self.include, "include", "show only paths matching this gitignore pattern in the whole view; repeat for more")
+	set.Var(&self.exclude, "exclude", "hide paths matching this gitignore pattern in the whole view; repeat for more")
+	set.Var(&self.members, "member", "folder to show, as path[:name[:ro]]; repeat for more")
+	set.Var(&memberFilterFlag{members: &self.members}, "member-include", "like --include, for the closest --member before it")
+	set.Var(&memberFilterFlag{members: &self.members, exclude: true}, "member-exclude", "like --exclude, for the closest --member before it")
+}
+
+// loadMembers points each member at a real, symlink-free directory.
+func loadMembers(members []core.Member) ([]core.Member, error) {
+	for i := range members {
+		m := &members[i]
 		abs, e := filepath.Abs(m.Path)
 		if nil != e {
 			return nil, e
@@ -407,7 +458,6 @@ func loadMembers(specs []string) ([]core.Member, error) {
 		if !fi.IsDir() {
 			return nil, fmt.Errorf("%s is not a directory", m.Path)
 		}
-		members = append(members, m)
 	}
 	return members, nil
 }
@@ -419,25 +469,27 @@ func fatal(err error) {
 
 func main() {
 	syscall.Umask(0)
-	usage := "usage: vw mount --member path[:name[:ro]]... <mountpoint> [fuse opts...]"
+	usage := "usage: vw mount [--include pattern]... [--exclude pattern]...\n" +
+		"       --member path[:name[:ro]] [--member-include pattern]... [--member-exclude pattern]... ...\n" +
+		"       <mountpoint> [fuse opts...]"
 	if 2 > len(os.Args) || "mount" != os.Args[1] {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
-	var specs listFlag
+	var mount mountFlags
 	flags := flag.NewFlagSet("mount", flag.ExitOnError)
 	flags.Usage = func() { fmt.Fprintln(os.Stderr, usage) }
-	flags.Var(&specs, "member", "folder to show, as path[:name[:ro]]; repeat for more")
+	mount.register(flags)
 	flags.Parse(os.Args[2:])
-	if 0 == len(specs) || 1 > flags.NArg() {
+	if 0 == len(mount.members) || 1 > flags.NArg() {
 		flags.Usage()
 		os.Exit(2)
 	}
-	members, err := loadMembers(specs)
+	members, err := loadMembers(mount.members)
 	if nil != err {
 		fatal(err)
 	}
-	view, err := core.New(members)
+	view, err := core.New(members, core.WithInclude(mount.include...), core.WithExclude(mount.exclude...))
 	if nil != err {
 		fatal(err)
 	}
