@@ -48,6 +48,17 @@ func (self *viewFS) real(path string) (string, int) {
 	return r.Real, 0
 }
 
+func (self *viewFS) realVisible(path string, isDir bool) (string, int) {
+	real, errc := self.real(path)
+	if 0 != errc {
+		return "", errc
+	}
+	if !self.view.Visible(path, isDir) {
+		return "", -fuse.ENOENT
+	}
+	return real, 0
+}
+
 func (self *viewFS) realWrite(path string) (string, int) {
 	real, e := self.view.ResolveWrite(path)
 	return real, errno(e)
@@ -147,7 +158,7 @@ func (self *viewFS) Symlink(target string, newpath string) (errc int) {
 
 func (self *viewFS) Readlink(path string) (errc int, target string) {
 	defer trace(path)(&errc, &target)
-	path, errc = self.real(path)
+	path, errc = self.realVisible(path, false)
 	if 0 != errc {
 		return
 	}
@@ -211,7 +222,7 @@ func (self *viewFS) Open(path string, flags int) (errc int, fh uint64) {
 	if syscall.O_RDONLY != flags&syscall.O_ACCMODE || 0 != flags&syscall.O_TRUNC {
 		path, errc = self.realWrite(path)
 	} else {
-		path, errc = self.real(path)
+		path, errc = self.realVisible(path, false)
 	}
 	return self.open(path, errc, flags, 0)
 }
@@ -235,11 +246,15 @@ func (self *viewFS) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int
 			self.rootStat(stat)
 			return 0
 		}
+		viewPath := path
 		path, errc = self.real(path)
 		if 0 != errc {
 			return
 		}
 		errc = errno(syscall.Lstat(path, &stgo))
+		if 0 == errc && !self.view.Visible(viewPath, syscall.S_IFDIR == stgo.Mode&syscall.S_IFMT) {
+			return -fuse.ENOENT
+		}
 	} else {
 		errc = errno(syscall.Fstat(int(fh), &stgo))
 	}
@@ -295,7 +310,7 @@ func (self *viewFS) Opendir(path string) (errc int, fh uint64) {
 	if core.Root == self.view.Resolve(path).Kind {
 		return 0, ^uint64(0)
 	}
-	path, errc = self.real(path)
+	path, errc = self.realVisible(path, true)
 	if 0 != errc {
 		return errc, ^uint64(0)
 	}
@@ -314,11 +329,20 @@ func (self *viewFS) Readdir(path string,
 	var nams []string
 	switch r := self.view.Resolve(path); r.Kind {
 	case core.Root:
-		nams = self.view.Names()
+		for _, name := range self.view.Names() {
+			if self.view.Visible("/"+name, true) {
+				nams = append(nams, name)
+			}
+		}
 	case core.InMember:
-		var e error
-		if nams, e = listDir(r.Real); nil != e {
+		entries, e := listDir(r.Real)
+		if nil != e {
 			return errno(e)
+		}
+		for _, entry := range entries {
+			if self.view.Visible(filepath.Join(path, entry.Name()), entry.IsDir()) {
+				nams = append(nams, entry.Name())
+			}
 		}
 	default:
 		return -fuse.ENOENT
@@ -332,13 +356,13 @@ func (self *viewFS) Readdir(path string,
 	return 0
 }
 
-func listDir(path string) ([]string, error) {
+func listDir(path string) ([]os.DirEntry, error) {
 	file, e := os.Open(path)
 	if nil != e {
 		return nil, e
 	}
 	defer file.Close()
-	return file.Readdirnames(0)
+	return file.ReadDir(0)
 }
 
 func (self *viewFS) Releasedir(path string, fh uint64) (errc int) {
