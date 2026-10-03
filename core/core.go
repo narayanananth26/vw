@@ -17,6 +17,7 @@ type Member struct {
 	Name     string
 	Path     string
 	ReadOnly bool
+	Include  []string
 	Exclude  []string
 }
 
@@ -40,11 +41,20 @@ type Resolved struct {
 // View is the set of members behind one mount.
 type View struct {
 	members       map[string]Member
+	include       includeSet
 	exclude       gitignore.Matcher
+	memberInclude map[string]includeSet
 	memberExclude map[string]gitignore.Matcher
 }
 
 type Option func(*View)
+
+// WithInclude shows only paths matching the gitignore-style patterns across the whole view.
+func WithInclude(patterns ...string) Option {
+	return func(view *View) {
+		view.include = newIncludeSet(patterns)
+	}
+}
 
 // WithExclude hides paths matching the gitignore-style patterns across the whole view.
 func WithExclude(patterns ...string) Option {
@@ -82,6 +92,7 @@ func ParseMember(spec string) (Member, error) {
 func New(members []Member, opts ...Option) (*View, error) {
 	view := &View{
 		members:       make(map[string]Member, len(members)),
+		memberInclude: make(map[string]includeSet, len(members)),
 		memberExclude: make(map[string]gitignore.Matcher, len(members)),
 	}
 	for _, opt := range opts {
@@ -95,6 +106,7 @@ func New(members []Member, opts ...Option) (*View, error) {
 			return nil, fmt.Errorf("duplicate member name %q, name one with path:name", m.Name)
 		}
 		view.members[m.Name] = m
+		view.memberInclude[m.Name] = newIncludeSet(m.Include)
 		view.memberExclude[m.Name] = compile(m.Exclude)
 	}
 	return view, nil

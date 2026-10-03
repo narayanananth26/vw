@@ -66,3 +66,78 @@ func TestVisibleWithoutFilters(t *testing.T) {
 		}
 	}
 }
+
+func TestVisibleInclude(t *testing.T) {
+	view, err := New([]Member{
+		{Name: "api", Path: "/home/api", Include: []string{"/src/", "go.*"}},
+		{Name: "web", Path: "/home/web", Include: []string{"/src/"}, Exclude: []string{"*.snap"}},
+		{Name: "lib", Path: "/home/lib", Include: []string{"/pkg/x.go", "/gen/**/*.go"}},
+		{Name: "cli", Path: "/home/cli"},
+	})
+	if nil != err {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		path  string
+		isDir bool
+		want  bool
+	}{
+		{"/api", true, true},
+		{"/api/src", true, true},
+		{"/api/src/a/b.go", false, true},
+		{"/api/go.mod", false, true},
+		{"/api/sub/go.sum", false, true},
+		{"/api/sub", true, true},
+		{"/api/README.md", false, false},
+		{"/web", true, true},
+		{"/web/src/a/b.go", false, true},
+		{"/web/src/a.snap", false, false},
+		{"/web/docs", true, false},
+		{"/web/README.md", false, false},
+		{"/web/sub/src", true, false},
+		{"/lib/pkg", true, true},
+		{"/lib/pkg/x.go", false, true},
+		{"/lib/pkg/y.go", false, false},
+		{"/lib/other", true, false},
+		{"/lib/gen", true, true},
+		{"/lib/gen/a/b", true, true},
+		{"/lib/gen/a/b.go", false, true},
+		{"/lib/gen/a/b.txt", false, false},
+		{"/web/.git/config", false, true},
+		{"/cli/anything", false, true},
+	}
+	for _, tt := range tests {
+		if got := view.Visible(tt.path, tt.isDir); tt.want != got {
+			t.Errorf("Visible(%q, %v) = %v, want %v", tt.path, tt.isDir, got, tt.want)
+		}
+	}
+}
+
+func TestVisibleViewInclude(t *testing.T) {
+	view, err := New([]Member{
+		{Name: "api", Path: "/home/api"},
+		{Name: "web", Path: "/home/web"},
+	}, WithInclude("/api/", "/web/src/"), WithExclude("*.snap"))
+	if nil != err {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		path  string
+		isDir bool
+		want  bool
+	}{
+		{"/", true, true},
+		{"/api", true, true},
+		{"/api/x/y.go", false, true},
+		{"/api/x/y.snap", false, false},
+		{"/web", true, true},
+		{"/web/src/a.go", false, true},
+		{"/web/docs", true, false},
+		{"/web/a.go", false, false},
+	}
+	for _, tt := range tests {
+		if got := view.Visible(tt.path, tt.isDir); tt.want != got {
+			t.Errorf("Visible(%q, %v) = %v, want %v", tt.path, tt.isDir, got, tt.want)
+		}
+	}
+}
