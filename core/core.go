@@ -13,12 +13,11 @@ import (
 )
 
 type Member struct {
-	Name      string
-	Path      string
-	ReadOnly  bool
-	Gitignore bool
-	Include   []string
-	Exclude   []string
+	Name     string
+	Path     string
+	ReadOnly bool
+	Include  []string
+	Exclude  []string
 }
 
 type Kind int
@@ -43,7 +42,6 @@ type View struct {
 	exclude       gitignore.Matcher
 	memberInclude map[string]includeSet
 	memberExclude map[string]gitignore.Matcher
-	readFile      func(real string) ([]byte, error)
 	scratch       string
 }
 
@@ -53,14 +51,6 @@ type Option func(*View)
 func WithScratch(dir string) Option {
 	return func(view *View) {
 		view.scratch = dir
-	}
-}
-
-// WithGitignoreSource reads .gitignore files for members that set Gitignore. An error from read
-// means the file is absent. Without a source those members are not filtered.
-func WithGitignoreSource(read func(real string) ([]byte, error)) Option {
-	return func(view *View) {
-		view.readFile = read
 	}
 }
 

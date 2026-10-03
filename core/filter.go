@@ -2,7 +2,6 @@ package core
 
 import (
 	"path"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -76,28 +75,6 @@ func anchoredAbove(elems, dir []string) bool {
 	return true
 }
 
-func (self *View) gitignoreMatcher(m Member, rest []string) gitignore.Matcher {
-	var patterns []gitignore.Pattern
-	for depth := range rest {
-		domain := rest[:depth]
-		data, err := self.readFile(filepath.Join(m.Path, filepath.Join(domain...), ".gitignore"))
-		if nil != err {
-			continue
-		}
-		for line := range strings.SplitSeq(string(data), "\n") {
-			line = strings.TrimSuffix(line, "\r")
-			if "" == line || strings.HasPrefix(line, "#") {
-				continue
-			}
-			patterns = append(patterns, gitignore.ParsePattern(line, domain))
-		}
-	}
-	if 0 == len(patterns) {
-		return nil
-	}
-	return gitignore.NewMatcher(patterns)
-}
-
 // A file under an excluded directory stays hidden whatever the later patterns say, so every
 // ancestor is tried as a directory first.
 func excludedBy(m gitignore.Matcher, parts []string, isDir bool) bool {
@@ -112,9 +89,9 @@ func excludedBy(m gitignore.Matcher, parts []string, isDir bool) bool {
 	return false
 }
 
-// Visible reports whether a view path shows up once the filters, including member .gitignore
-// files, apply. isDir says whether its last element is a directory. A path with a .git element,
-// or outside every member, is always visible.
+// Visible reports whether a view path shows up once the filters apply. isDir says whether its
+// last element is a directory. A path with a .git element, or outside every member, is always
+// visible.
 func (self *View) Visible(viewPath string, isDir bool) bool {
 	clean := path.Clean("/" + viewPath)
 	if "/" == clean {
@@ -125,18 +102,12 @@ func (self *View) Visible(viewPath string, isDir bool) bool {
 		return true
 	}
 	name, rest := parts[0], parts[1:]
-	m, isMember := self.members[name]
+	_, isMember := self.members[name]
 	if !isMember {
 		return true
 	}
 	if !self.include.shows(parts, isDir) || excludedBy(self.exclude, parts, isDir) {
 		return false
 	}
-	if !self.memberInclude[name].shows(rest, isDir) || excludedBy(self.memberExclude[name], rest, isDir) {
-		return false
-	}
-	if !m.Gitignore || nil == self.readFile {
-		return true
-	}
-	return !excludedBy(self.gitignoreMatcher(m, rest), rest, isDir)
+	return self.memberInclude[name].shows(rest, isDir) && !excludedBy(self.memberExclude[name], rest, isDir)
 }
