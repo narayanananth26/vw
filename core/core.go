@@ -12,16 +12,15 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 )
 
-// Member is a real directory shown in the view under Name.
 type Member struct {
-	Name     string
-	Path     string
-	ReadOnly bool
-	Include  []string
-	Exclude  []string
+	Name      string
+	Path      string
+	ReadOnly  bool
+	Gitignore bool
+	Include   []string
+	Exclude   []string
 }
 
-// Kind says what a view path points at.
 type Kind int
 
 const (
@@ -30,33 +29,40 @@ const (
 	InMember
 )
 
-// Resolved is the answer to what a view path means.
 type Resolved struct {
 	Kind       Kind
 	Real       string // real path, set when Kind is InMember
-	ReadOnly   bool   // the member holding the path is read-only
-	MemberRoot bool   // the path is the member's own directory
+	ReadOnly   bool
+	MemberRoot bool
 }
 
-// View is the set of members behind one mount.
 type View struct {
 	members       map[string]Member
 	include       includeSet
 	exclude       gitignore.Matcher
 	memberInclude map[string]includeSet
 	memberExclude map[string]gitignore.Matcher
+	readFile      func(real string) ([]byte, error)
 }
 
 type Option func(*View)
 
-// WithInclude shows only paths matching the gitignore-style patterns across the whole view.
+// WithGitignoreSource reads .gitignore files for members that set Gitignore. An error from read
+// means the file is absent. Without a source those members are not filtered.
+func WithGitignoreSource(read func(real string) ([]byte, error)) Option {
+	return func(view *View) {
+		view.readFile = read
+	}
+}
+
+// WithInclude takes gitignore-style patterns matched against the whole view path, member name first.
 func WithInclude(patterns ...string) Option {
 	return func(view *View) {
 		view.include = newIncludeSet(patterns)
 	}
 }
 
-// WithExclude hides paths matching the gitignore-style patterns across the whole view.
+// WithExclude takes gitignore-style patterns matched against the whole view path, member name first.
 func WithExclude(patterns ...string) Option {
 	return func(view *View) {
 		view.exclude = compile(patterns)
@@ -116,14 +122,13 @@ func validName(name string) bool {
 	return "" != name && "." != name && ".." != name && !strings.Contains(name, "/")
 }
 
-// split cleans a view path and cuts it into the member name and the rest.
 func split(viewPath string) (name, rest string) {
 	clean := path.Clean("/" + viewPath)
 	name, rest, _ = strings.Cut(clean[1:], "/")
 	return name, rest
 }
 
-// Resolve maps a view path to the real path it stands for.
+// Resolve cleans viewPath first, so .. cannot climb out of a member.
 func (self *View) Resolve(viewPath string) Resolved {
 	name, rest := split(viewPath)
 	if "" == name {
@@ -141,7 +146,7 @@ func (self *View) Resolve(viewPath string) Resolved {
 	}
 }
 
-// Names lists the member names in order, which is what the view root contains.
+// Names returns the member names sorted.
 func (self *View) Names() []string {
 	names := make([]string, 0, len(self.members))
 	for name := range self.members {
@@ -151,7 +156,6 @@ func (self *View) Names() []string {
 	return names
 }
 
-// writeErr says why r cannot be written, or nil. The root takes no files until it has a scratch directory.
 func writeErr(viewPath string, r Resolved) error {
 	switch r.Kind {
 	case Root:
@@ -168,7 +172,8 @@ func writeErr(viewPath string, r Resolved) error {
 	return nil
 }
 
-// ResolveWrite resolves a path that is about to be created or changed.
+// ResolveWrite returns EROFS for a read-only member, EACCES at the view root and ENOENT under an
+// unknown member.
 func (self *View) ResolveWrite(viewPath string) (string, error) {
 	r := self.Resolve(viewPath)
 	if err := writeErr(viewPath, r); nil != err {
@@ -177,8 +182,7 @@ func (self *View) ResolveWrite(viewPath string) (string, error) {
 	return r.Real, nil
 }
 
-// ResolveRemove resolves a path that is about to be deleted. A member's own directory is refused,
-// so removing it can never delete the real folder.
+// ResolveRemove fails like ResolveWrite, and with EBUSY for a member's own directory.
 func (self *View) ResolveRemove(viewPath string) (string, error) {
 	r := self.Resolve(viewPath)
 	if err := writeErr(viewPath, r); nil != err {
@@ -190,8 +194,8 @@ func (self *View) ResolveRemove(viewPath string) (string, error) {
 	return r.Real, nil
 }
 
-// ResolvePair resolves the two paths of a rename or link. Paths in different members are on
-// different filesystems as far as tools are concerned, so they get EXDEV and mv falls back to a copy.
+// ResolvePair returns EXDEV across members, so mv falls back to a copy. Otherwise it fails like
+// ResolveRemove.
 func (self *View) ResolvePair(oldPath, newPath string) (string, string, error) {
 	oldR, newR := self.Resolve(oldPath), self.Resolve(newPath)
 	oldName, _ := split(oldPath)

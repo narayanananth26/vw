@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestVisibleExclude(t *testing.T) {
 	view, err := New([]Member{
@@ -139,5 +142,61 @@ func TestVisibleViewInclude(t *testing.T) {
 		if got := view.Visible(tt.path, tt.isDir); tt.want != got {
 			t.Errorf("Visible(%q, %v) = %v, want %v", tt.path, tt.isDir, got, tt.want)
 		}
+	}
+}
+
+func TestVisibleGitignore(t *testing.T) {
+	files := map[string]string{
+		"/home/api/.gitignore":     "node_modules/\n*.log\n# comment\n\n!keep.log\r\n",
+		"/home/api/pkg/.gitignore": "gen.go\n/local\n",
+		"/home/web/.gitignore":     "*.log\n",
+	}
+	read := func(real string) ([]byte, error) {
+		data, ok := files[real]
+		if !ok {
+			return nil, os.ErrNotExist
+		}
+		return []byte(data), nil
+	}
+	view, err := New([]Member{
+		{Name: "api", Path: "/home/api", Gitignore: true},
+		{Name: "web", Path: "/home/web"},
+	}, WithGitignoreSource(read))
+	if nil != err {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		path  string
+		isDir bool
+		want  bool
+	}{
+		{"/api/src/main.go", false, true},
+		{"/api/node_modules", true, false},
+		{"/api/node_modules/x/y.js", false, false},
+		{"/api/a.log", false, false},
+		{"/api/keep.log", false, true},
+		{"/api/pkg/gen.go", false, false},
+		{"/api/pkg/x/gen.go", false, false},
+		{"/api/gen.go", false, true},
+		{"/api/pkg/local", false, false},
+		{"/api/local", false, true},
+		{"/api/pkg/sub/local", false, true},
+		{"/api/.git/objects/ab", false, true},
+		{"/web/a.log", false, true},
+	}
+	for _, tt := range tests {
+		if got := view.Visible(tt.path, tt.isDir); tt.want != got {
+			t.Errorf("Visible(%q, %v) = %v, want %v", tt.path, tt.isDir, got, tt.want)
+		}
+	}
+}
+
+func TestVisibleGitignoreWithoutSource(t *testing.T) {
+	view, err := New([]Member{{Name: "api", Path: "/home/api", Gitignore: true}})
+	if nil != err {
+		t.Fatal(err)
+	}
+	if !view.Visible("/api/a.log", false) {
+		t.Error("Visible(/api/a.log) = false with no gitignore source, want true")
 	}
 }
