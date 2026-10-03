@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"io"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -51,5 +52,27 @@ func TestMountFlagsRejectMemberFilterWithoutMember(t *testing.T) {
 func TestMountFlagsRejectBadMemberSpec(t *testing.T) {
 	if _, err := parseMountFlags([]string{"--member", "/a:b:rw"}); nil == err {
 		t.Error("a member spec with an unknown option was accepted")
+	}
+}
+
+func TestScratchDirDefaultsToMountpointName(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := scratchDir("", "/x/surfaces")
+	if nil != err {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".local/share/vw/views/surfaces/root"); want != got {
+		t.Errorf("scratchDir = %q, want %q", got, want)
+	}
+}
+
+func TestScratchDirFlagBecomesAbsolute(t *testing.T) {
+	got, err := scratchDir("rel/scratch", "/x/surfaces")
+	if nil != err {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(got) || "scratch" != filepath.Base(got) {
+		t.Errorf("scratchDir = %q, want an absolute path ending in scratch", got)
 	}
 }

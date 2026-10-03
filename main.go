@@ -37,6 +37,7 @@ var (
 type viewFS struct {
 	fuse.FileSystemBase
 	view    *core.View
+	scratch string
 	mounted fuse.Timespec
 }
 
@@ -77,7 +78,7 @@ func (self *viewFS) realPair(oldpath, newpath string) (string, string, int) {
 // rootStat describes the view root, which has no real directory behind it.
 func (self *viewFS) rootStat(stat *fuse.Stat_t) {
 	*stat = fuse.Stat_t{}
-	stat.Mode = fuse.S_IFDIR | 0555
+	stat.Mode = fuse.S_IFDIR | 0755
 	stat.Nlink = uint32(2 + len(self.view.Names()))
 	stat.Uid, stat.Gid = uint32(os.Getuid()), uint32(os.Getgid())
 	stat.Atim, stat.Mtim, stat.Ctim, stat.Birthtim = self.mounted, self.mounted, self.mounted, self.mounted
@@ -329,7 +330,15 @@ func (self *viewFS) Readdir(path string,
 	var nams []string
 	switch r := self.view.Resolve(path); r.Kind {
 	case core.Root:
-		for _, name := range self.view.Names() {
+		entries, e := listDir(self.scratch)
+		if nil != e {
+			return errno(e)
+		}
+		scratchNames := make([]string, len(entries))
+		for i, entry := range entries {
+			scratchNames[i] = entry.Name()
+		}
+		for _, name := range self.view.RootEntries(scratchNames) {
 			if self.view.Visible("/"+name, true) {
 				nams = append(nams, name)
 			}
@@ -429,14 +438,31 @@ func (self *memberFilterFlag) Set(pattern string) error {
 type mountFlags struct {
 	include, exclude listFlag
 	members          memberFlag
+	scratch          string
 }
 
 func (self *mountFlags) register(set *flag.FlagSet) {
 	set.Var(&self.include, "include", "show only paths matching this gitignore pattern in the whole view; repeat for more")
 	set.Var(&self.exclude, "exclude", "hide paths matching this gitignore pattern in the whole view; repeat for more")
 	set.Var(&self.members, "member", "folder to show, as path[:name[:ro]]; repeat for more")
+	set.StringVar(&self.scratch, "scratch", "", "folder holding files created at the view root; default ~/.local/share/vw/views/<mountpoint name>/root")
 	set.Var(&memberFilterFlag{members: &self.members}, "member-include", "like --include, for the closest --member before it")
 	set.Var(&memberFilterFlag{members: &self.members, exclude: true}, "member-exclude", "like --exclude, for the closest --member before it")
+}
+
+func scratchDir(flagValue, mountpoint string) (string, error) {
+	if "" != flagValue {
+		return filepath.Abs(flagValue)
+	}
+	abs, e := filepath.Abs(mountpoint)
+	if nil != e {
+		return "", e
+	}
+	home, e := os.UserHomeDir()
+	if nil != e {
+		return "", e
+	}
+	return filepath.Join(home, ".local", "share", "vw", "views", filepath.Base(abs), "root"), nil
 }
 
 // loadMembers points each member at a real, symlink-free directory.
@@ -469,7 +495,7 @@ func fatal(err error) {
 
 func main() {
 	syscall.Umask(0)
-	usage := "usage: vw mount [--include pattern]... [--exclude pattern]...\n" +
+	usage := "usage: vw mount [--include pattern]... [--exclude pattern]... [--scratch dir]\n" +
 		"       --member path[:name[:ro]] [--member-include pattern]... [--member-exclude pattern]... ...\n" +
 		"       <mountpoint> [fuse opts...]"
 	if 2 > len(os.Args) || "mount" != os.Args[1] {
@@ -489,15 +515,22 @@ func main() {
 	if nil != err {
 		fatal(err)
 	}
-	view, err := core.New(members, core.WithInclude(mount.include...), core.WithExclude(mount.exclude...))
-	if nil != err {
-		fatal(err)
-	}
 	mountpoint := flags.Arg(0)
 	if fi, err := os.Stat(mountpoint); nil != err || !fi.IsDir() {
 		fatal(fmt.Errorf("%s is not a directory", mountpoint))
 	}
-	fs := viewFS{view: view, mounted: fuse.Now()}
+	scratch, err := scratchDir(mount.scratch, mountpoint)
+	if nil != err {
+		fatal(err)
+	}
+	if err := os.MkdirAll(scratch, 0o755); nil != err {
+		fatal(err)
+	}
+	view, err := core.New(members, core.WithInclude(mount.include...), core.WithExclude(mount.exclude...), core.WithScratch(scratch))
+	if nil != err {
+		fatal(err)
+	}
+	fs := viewFS{view: view, scratch: scratch, mounted: fuse.Now()}
 	_host = fuse.NewFileSystemHost(&fs)
 	// Mount returns false after Ctrl-C too, so its result can't tell a failed mount from a clean exit.
 	_host.Mount(mountpoint, flags.Args()[1:])
