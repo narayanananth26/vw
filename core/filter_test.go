@@ -200,3 +200,17 @@ func TestVisibleGitignoreWithoutSource(t *testing.T) {
 		t.Error("Visible(/api/a.log) = false with no gitignore source, want true")
 	}
 }
+
+func TestVisibleScratchIgnoresFilters(t *testing.T) {
+	view, err := New([]Member{{Name: "api", Path: "/home/api"}},
+		WithInclude("/api/"), WithExclude("*.md"), WithScratch("/scratch"))
+	if nil != err {
+		t.Fatal(err)
+	}
+	if !view.Visible("/AGENTS.md", false) {
+		t.Error("Visible(/AGENTS.md) = false, want true for a scratch file")
+	}
+	if view.Visible("/api/README.md", false) {
+		t.Error("Visible(/api/README.md) = true, want false for an excluded member file")
+	}
+}

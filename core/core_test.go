@@ -188,6 +188,7 @@ func TestResolvePair(t *testing.T) {
 		{"/api/a", "/api/b", "", "", syscall.EROFS},
 		{"/docs", "/docs/x", "", "", syscall.EBUSY},
 		{"/docs/a", "/docs", "", "", syscall.EBUSY},
+		{"/docs", "/c/x", "", "", syscall.EBUSY},
 		{"/docs/a", "/newtop", "", "", syscall.EACCES},
 		{"/nope/x", "/docs/a", "", "", syscall.ENOENT},
 	}
@@ -197,5 +198,92 @@ func TestResolvePair(t *testing.T) {
 			t.Errorf("ResolvePair(%q, %q) = %q, %q, %v, want %q, %q, %v",
 				tt.old, tt.new, oldReal, newReal, err, tt.oldReal, tt.newReal, tt.err)
 		}
+	}
+}
+
+func newScratchView(t *testing.T) *View {
+	t.Helper()
+	view, err := New([]Member{
+		{Name: "docs", Path: "/home/notes"},
+		{Name: "api", Path: "/home/b", ReadOnly: true},
+	}, WithScratch("/scratch"))
+	if nil != err {
+		t.Fatal(err)
+	}
+	return view
+}
+
+func TestResolveScratch(t *testing.T) {
+	view := newScratchView(t)
+	tests := []struct {
+		path string
+		want Resolved
+	}{
+		{"/", Resolved{Kind: Root}},
+		{"/AGENTS.md", Resolved{Kind: Scratch, Real: "/scratch/AGENTS.md"}},
+		{"/notes/todo.md", Resolved{Kind: Scratch, Real: "/scratch/notes/todo.md"}},
+		{"/../AGENTS.md", Resolved{Kind: Scratch, Real: "/scratch/AGENTS.md"}},
+		{"/docs/a.txt", Resolved{Kind: InMember, Real: "/home/notes/a.txt"}},
+		{"/api", Resolved{Kind: InMember, Real: "/home/b", ReadOnly: true, MemberRoot: true}},
+	}
+	for _, tt := range tests {
+		if got := view.Resolve(tt.path); tt.want != got {
+			t.Errorf("Resolve(%q) = %+v, want %+v", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestResolveWriteScratch(t *testing.T) {
+	view := newScratchView(t)
+	tests := []struct {
+		path string
+		real string
+		err  error
+	}{
+		{"/AGENTS.md", "/scratch/AGENTS.md", nil},
+		{"/sub/x", "/scratch/sub/x", nil},
+		{"/docs/a.txt", "/home/notes/a.txt", nil},
+		{"/api/a.txt", "", syscall.EROFS},
+		{"/", "", syscall.EACCES},
+	}
+	for _, tt := range tests {
+		real, err := view.ResolveWrite(tt.path)
+		if tt.real != real || !errors.Is(err, tt.err) {
+			t.Errorf("ResolveWrite(%q) = %q, %v, want %q, %v", tt.path, real, err, tt.real, tt.err)
+		}
+	}
+	if real, err := view.ResolveRemove("/AGENTS.md"); "/scratch/AGENTS.md" != real || nil != err {
+		t.Errorf("ResolveRemove(/AGENTS.md) = %q, %v, want /scratch/AGENTS.md, nil", real, err)
+	}
+}
+
+func TestResolvePairScratch(t *testing.T) {
+	view := newScratchView(t)
+	tests := []struct {
+		old, new         string
+		oldReal, newReal string
+		err              error
+	}{
+		{"/a", "/b", "/scratch/a", "/scratch/b", nil},
+		{"/a", "/sub/b", "/scratch/a", "/scratch/sub/b", nil},
+		{"/a", "/docs/a", "", "", syscall.EXDEV},
+		{"/docs/a", "/a", "", "", syscall.EXDEV},
+		{"/docs", "/x", "", "", syscall.EBUSY},
+		{"/a", "/docs", "", "", syscall.EBUSY},
+	}
+	for _, tt := range tests {
+		oldReal, newReal, err := view.ResolvePair(tt.old, tt.new)
+		if tt.oldReal != oldReal || tt.newReal != newReal || !errors.Is(err, tt.err) {
+			t.Errorf("ResolvePair(%q, %q) = %q, %q, %v, want %q, %q, %v",
+				tt.old, tt.new, oldReal, newReal, err, tt.oldReal, tt.newReal, tt.err)
+		}
+	}
+}
+
+func TestRootEntries(t *testing.T) {
+	want := []string{"AGENTS.md", "CLAUDE.md", "api", "c", "docs"}
+	got := newTestView(t).RootEntries([]string{"CLAUDE.md", "docs", "AGENTS.md"})
+	if !slices.Equal(want, got) {
+		t.Errorf("RootEntries() = %v, want %v", got, want)
 	}
 }

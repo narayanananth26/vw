@@ -27,11 +27,12 @@ const (
 	NotFound Kind = iota
 	Root
 	InMember
+	Scratch
 )
 
 type Resolved struct {
 	Kind       Kind
-	Real       string // real path, set when Kind is InMember
+	Real       string // real path, set when Kind is InMember or Scratch
 	ReadOnly   bool
 	MemberRoot bool
 }
@@ -43,9 +44,17 @@ type View struct {
 	memberInclude map[string]includeSet
 	memberExclude map[string]gitignore.Matcher
 	readFile      func(real string) ([]byte, error)
+	scratch       string
 }
 
 type Option func(*View)
+
+// WithScratch resolves root-level names that are not members to paths under dir.
+func WithScratch(dir string) Option {
+	return func(view *View) {
+		view.scratch = dir
+	}
+}
 
 // WithGitignoreSource reads .gitignore files for members that set Gitignore. An error from read
 // means the file is absent. Without a source those members are not filtered.
@@ -136,7 +145,10 @@ func (self *View) Resolve(viewPath string) Resolved {
 	}
 	m, ok := self.members[name]
 	if !ok {
-		return Resolved{Kind: NotFound}
+		if "" == self.scratch {
+			return Resolved{Kind: NotFound}
+		}
+		return Resolved{Kind: Scratch, Real: filepath.Join(self.scratch, name, rest)}
 	}
 	return Resolved{
 		Kind:       InMember,
@@ -144,6 +156,19 @@ func (self *View) Resolve(viewPath string) Resolved {
 		ReadOnly:   m.ReadOnly,
 		MemberRoot: "" == rest,
 	}
+}
+
+// RootEntries merges scratchNames into the member names, sorted. A member hides a scratch entry
+// of the same name.
+func (self *View) RootEntries(scratchNames []string) []string {
+	entries := self.Names()
+	for _, name := range scratchNames {
+		if _, isMember := self.members[name]; !isMember {
+			entries = append(entries, name)
+		}
+	}
+	slices.Sort(entries)
+	return entries
 }
 
 // Names returns the member names sorted.
@@ -194,13 +219,14 @@ func (self *View) ResolveRemove(viewPath string) (string, error) {
 	return r.Real, nil
 }
 
-// ResolvePair returns EXDEV across members, so mv falls back to a copy. Otherwise it fails like
-// ResolveRemove.
+// ResolvePair returns EXDEV between members, or between a member and the scratch directory, so mv
+// falls back to a copy. Otherwise it fails like ResolveRemove.
 func (self *View) ResolvePair(oldPath, newPath string) (string, string, error) {
 	oldR, newR := self.Resolve(oldPath), self.Resolve(newPath)
-	oldName, _ := split(oldPath)
-	newName, _ := split(newPath)
-	if InMember == oldR.Kind && InMember == newR.Kind && oldName != newName {
+	if oldR.MemberRoot || newR.MemberRoot {
+		return "", "", syscall.EBUSY
+	}
+	if "" != oldR.Real && "" != newR.Real && volume(oldPath, oldR) != volume(newPath, newR) {
 		return "", "", syscall.EXDEV
 	}
 	if err := writeErr(oldPath, oldR); nil != err {
@@ -209,8 +235,13 @@ func (self *View) ResolvePair(oldPath, newPath string) (string, string, error) {
 	if err := writeErr(newPath, newR); nil != err {
 		return "", "", err
 	}
-	if oldR.MemberRoot || newR.MemberRoot {
-		return "", "", syscall.EBUSY
-	}
 	return oldR.Real, newR.Real, nil
+}
+
+func volume(viewPath string, r Resolved) string {
+	if Scratch == r.Kind {
+		return ""
+	}
+	name, _ := split(viewPath)
+	return name
 }

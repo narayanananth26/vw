@@ -112,10 +112,9 @@ func excludedBy(m gitignore.Matcher, parts []string, isDir bool) bool {
 	return false
 }
 
-// Visible reports whether a view path shows up once the view and member filters apply,
-// including member .gitignore files. isDir says whether its last element is a directory.
-// A path with a .git element is always visible. View-level patterns match against the whole
-// view path, member name first, and member-level ones against the path inside the member.
+// Visible reports whether a view path shows up once the filters, including member .gitignore
+// files, apply. isDir says whether its last element is a directory. A path with a .git element,
+// or outside every member, is always visible.
 func (self *View) Visible(viewPath string, isDir bool) bool {
 	clean := path.Clean("/" + viewPath)
 	if "/" == clean {
@@ -125,14 +124,17 @@ func (self *View) Visible(viewPath string, isDir bool) bool {
 	if slices.Contains(parts, ".git") {
 		return true
 	}
+	name, rest := parts[0], parts[1:]
+	m, isMember := self.members[name]
+	if !isMember {
+		return true
+	}
 	if !self.include.shows(parts, isDir) || excludedBy(self.exclude, parts, isDir) {
 		return false
 	}
-	name, rest := parts[0], parts[1:]
 	if !self.memberInclude[name].shows(rest, isDir) || excludedBy(self.memberExclude[name], rest, isDir) {
 		return false
 	}
-	m := self.members[name]
 	if !m.Gitignore || nil == self.readFile {
 		return true
 	}
