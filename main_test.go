@@ -129,3 +129,24 @@ func TestReaddirHidesEntriesOnlyInListedDirectories(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadMembersMarksFilesAndDirectories(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "notes.md")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	members, err := loadMembers([]core.Member{{Name: "dir", Path: dir}, {Name: "notes.md", Path: file}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if members[0].File || !members[1].File {
+		t.Errorf("File flags = %v, %v, want false, true", members[0].File, members[1].File)
+	}
+}
+
+func TestLoadMembersRejectsMissingPath(t *testing.T) {
+	if _, err := loadMembers([]core.Member{{Name: "x", Path: filepath.Join(t.TempDir(), "missing")}}); err == nil {
+		t.Error("a missing path was accepted")
+	}
+}

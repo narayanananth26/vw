@@ -451,7 +451,7 @@ func scratchDir(flagValue, mountpoint string) (string, error) {
 	return filepath.Join(home, ".local", "share", "vw", "views", filepath.Base(abs), "root"), nil
 }
 
-// loadMembers points each member at a real, symlink-free directory.
+// loadMembers points each member at a real, symlink-free directory or regular file.
 func loadMembers(members []core.Member) ([]core.Member, error) {
 	for i := range members {
 		m := &members[i]
@@ -467,8 +467,12 @@ func loadMembers(members []core.Member) ([]core.Member, error) {
 		if e != nil {
 			return nil, e
 		}
-		if !fi.IsDir() {
-			return nil, fmt.Errorf("%s is not a directory", m.Path)
+		switch {
+		case fi.IsDir():
+		case fi.Mode().IsRegular():
+			m.File = true
+		default:
+			return nil, fmt.Errorf("%s is not a directory or regular file", m.Path)
 		}
 	}
 	return members, nil
