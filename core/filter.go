@@ -19,7 +19,6 @@ func compile(patterns []string) gitignore.Matcher {
 	return gitignore.NewMatcher(parsed)
 }
 
-// includeSet is the include patterns of a view or a member. With no patterns everything shows.
 type includeSet struct {
 	patterns []string
 	matcher  gitignore.Matcher

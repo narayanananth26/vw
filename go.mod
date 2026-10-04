@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/go-git/go-git/v5 v5.19.2
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/winfsp/cgofuse v1.6.0
 )
 
