@@ -15,6 +15,7 @@ import (
 type Member struct {
 	Name     string
 	Path     string
+	File     bool
 	ReadOnly bool
 	Include  []string
 	Exclude  []string
@@ -109,6 +110,9 @@ func New(members []Member, opts ...Option) (*View, error) {
 		}
 		if _, dup := view.members[m.Name]; dup {
 			return nil, fmt.Errorf("duplicate member name %q, name one with path:name", m.Name)
+		}
+		if m.File && (len(m.Include) > 0 || len(m.Exclude) > 0) {
+			return nil, fmt.Errorf("file member %q cannot have include or exclude patterns", m.Name)
 		}
 		view.members[m.Name] = m
 		view.memberInclude[m.Name] = newIncludeSet(m.Include)

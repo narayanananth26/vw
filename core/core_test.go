@@ -65,6 +65,41 @@ func TestNewRejectsDuplicateNames(t *testing.T) {
 	}
 }
 
+func TestNewRejectsFiltersOnFileMember(t *testing.T) {
+	for _, m := range []Member{
+		{Name: "notes", Path: "/home/notes.md", File: true, Include: []string{"a"}},
+		{Name: "notes", Path: "/home/notes.md", File: true, Exclude: []string{"a"}},
+	} {
+		if _, err := New([]Member{m}); nil == err {
+			t.Errorf("New accepted filters on file member %+v", m)
+		}
+	}
+}
+
+func TestFileMember(t *testing.T) {
+	view, err := New([]Member{
+		{Name: "docs", Path: "/home/docs"},
+		{Name: "notes.md", Path: "/home/notes.md", File: true},
+	})
+	if nil != err {
+		t.Fatal(err)
+	}
+	if got := view.Resolve("/notes.md"); (Resolved{Kind: InMember, Real: "/home/notes.md", MemberRoot: true}) != got {
+		t.Errorf("Resolve(/notes.md) = %+v", got)
+	}
+	if real, err := view.ResolveRemove("/notes.md"); "" != real || !errors.Is(err, syscall.EBUSY) {
+		t.Errorf("ResolveRemove(/notes.md) = %q, %v, want EBUSY", real, err)
+	}
+	for _, pair := range [][2]string{{"/notes.md", "/docs/x"}, {"/docs/x", "/notes.md"}, {"/notes.md", "/other"}} {
+		if _, _, err := view.ResolvePair(pair[0], pair[1]); !errors.Is(err, syscall.EBUSY) {
+			t.Errorf("ResolvePair(%q, %q) error = %v, want EBUSY", pair[0], pair[1], err)
+		}
+	}
+	if real, err := view.ResolveWrite("/notes.md"); "/home/notes.md" != real || nil != err {
+		t.Errorf("ResolveWrite(/notes.md) = %q, %v", real, err)
+	}
+}
+
 func TestNewRejectsInvalidNames(t *testing.T) {
 	for _, name := range []string{"", ".", "..", "a/b"} {
 		if _, err := New([]Member{{Name: name, Path: "/home/a"}}); nil == err {
