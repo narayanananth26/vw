@@ -373,9 +373,10 @@ func fatal(err error) {
 
 func main() {
 	syscall.Umask(0)
-	if len(os.Args) < 2 || os.Args[1] != "mount" {
-		fmt.Fprintln(os.Stderr, mountUsage)
+	commands := map[string]func([]string){"mount": mountCmd, "ls": lsCmd, "path": pathCmd}
+	if len(os.Args) < 2 || commands[os.Args[1]] == nil {
+		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
-	mountCmd(os.Args[2:])
+	commands[os.Args[1]](os.Args[2:])
 }
