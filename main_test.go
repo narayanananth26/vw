@@ -175,3 +175,26 @@ func TestIsMounted(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckMountPoint(t *testing.T) {
+	full := t.TempDir()
+	if err := os.WriteFile(filepath.Join(full, "keep"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name, path, want string
+	}{
+		{"empty directory", t.TempDir(), ""},
+		{"directory with files", full, "not empty"},
+		{"existing mount", "/dev", "already a mount point"},
+	}
+	for _, tt := range tests {
+		err := checkMountPoint(tt.path)
+		switch {
+		case tt.want == "" && err != nil:
+			t.Errorf("%s: unexpected error %v", tt.name, err)
+		case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+			t.Errorf("%s: error = %v, want one mentioning %q", tt.name, err, tt.want)
+		}
+	}
+}

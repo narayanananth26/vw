@@ -164,6 +164,25 @@ func isMounted(path string) (bool, error) {
 	return dev != parent, nil
 }
 
+// checkMountPoint refuses a directory that is already a mount or would hide files if mounted over.
+func checkMountPoint(path string) error {
+	mounted, e := isMounted(path)
+	if e != nil {
+		return e
+	}
+	if mounted {
+		return fmt.Errorf("%s is already a mount point", path)
+	}
+	entries, e := os.ReadDir(path)
+	if e != nil {
+		return e
+	}
+	if len(entries) > 0 {
+		return fmt.Errorf("%s is not empty", path)
+	}
+	return nil
+}
+
 const mountUsage = "usage: vw mount [--include pattern]... [--exclude pattern]... [--scratch dir]\n" +
 	"       --member path[:name[:ro]] [--member-include pattern]... [--member-exclude pattern]... ...\n" +
 	"       <mountpoint> [fuse opts...]"
@@ -188,6 +207,9 @@ func mountCmd(args []string) {
 	mountpoint := flags.Arg(0)
 	if fi, err := os.Stat(mountpoint); err != nil || !fi.IsDir() {
 		fatal(fmt.Errorf("%s is not a directory", mountpoint))
+	}
+	if err := checkMountPoint(mountpoint); err != nil {
+		fatal(err)
 	}
 	scratch, err := scratchDir(mount.scratch, mountpoint)
 	if err != nil {
