@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 const usage = "usage: vw <command>\n" +
@@ -17,7 +19,8 @@ const usage = "usage: vw <command>\n" +
 	"  mount --member path[:name[:ro]]... <mountpoint> [fuse opts...]   see vw mount for all flags\n" +
 	"  ls [<view>]     list views, or one view's members\n" +
 	"  path <view>     print a view's mount point\n" +
-	"  edit <view>     open a view file in $EDITOR"
+	"  edit <view>     open a view file in $EDITOR\n" +
+	"  new <view> [path...]   create a view; a name goes in the central directory, a file path stays where it is"
 
 // listViews prints the name of every central view.
 func listViews(w io.Writer) error {
@@ -139,4 +142,61 @@ func editCmd(args []string) {
 	if e := editView(args[0], editor, os.Stderr); e != nil {
 		fatal(e)
 	}
+}
+
+// newView writes a view file with one member per path and returns where it went. A central view
+// records absolute paths, and a view file elsewhere records them relative to itself.
+func newView(arg string, paths []string) (string, error) {
+	path, e := resolveView(arg)
+	if e != nil {
+		return "", e
+	}
+	file, e := filepath.Abs(path)
+	if e != nil {
+		return "", e
+	}
+	var f viewFile
+	for _, p := range paths {
+		member, e := filepath.Abs(p)
+		if e != nil {
+			return "", e
+		}
+		if isViewFilePath(arg) {
+			if member, e = filepath.Rel(filepath.Dir(file), member); e != nil {
+				return "", e
+			}
+		}
+		f.Member = append(f.Member, viewMemberFile{Path: member})
+	}
+	data, e := toml.Marshal(f)
+	if e != nil {
+		return "", e
+	}
+	if e := os.MkdirAll(filepath.Dir(file), 0o755); e != nil {
+		return "", e
+	}
+	out, e := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(e, os.ErrExist) {
+		return "", fmt.Errorf("%s already exists", file)
+	}
+	if e != nil {
+		return "", e
+	}
+	if _, e := out.Write(data); e != nil {
+		out.Close()
+		return "", e
+	}
+	return file, out.Close()
+}
+
+func newCmd(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, usage)
+		os.Exit(2)
+	}
+	path, e := newView(args[0], args[1:])
+	if e != nil {
+		fatal(e)
+	}
+	fmt.Println(path)
 }

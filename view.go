@@ -15,17 +15,17 @@ import (
 
 type viewMemberFile struct {
 	Path    string   `toml:"path"`
-	As      string   `toml:"as"`
-	Ro      bool     `toml:"ro"`
-	Include []string `toml:"include"`
-	Exclude []string `toml:"exclude"`
+	As      string   `toml:"as,omitempty"`
+	Ro      bool     `toml:"ro,omitempty"`
+	Include []string `toml:"include,omitempty"`
+	Exclude []string `toml:"exclude,omitempty"`
 }
 
 type viewFile struct {
-	Mount   string           `toml:"mount"`
-	Include []string         `toml:"include"`
-	Exclude []string         `toml:"exclude"`
-	Member  []viewMemberFile `toml:"member"`
+	Mount   string           `toml:"mount,omitempty"`
+	Include []string         `toml:"include,omitempty"`
+	Exclude []string         `toml:"exclude,omitempty"`
+	Member  []viewMemberFile `toml:"member,omitempty"`
 }
 
 // view is a view file with every path made absolute.
@@ -132,10 +132,14 @@ func viewsDir() (string, error) {
 	return filepath.Join(home, ".config", "vw", "views"), nil
 }
 
+func isViewFilePath(arg string) bool {
+	return strings.ContainsRune(arg, filepath.Separator) || strings.HasSuffix(arg, ".view") || strings.HasSuffix(arg, ".toml")
+}
+
 // resolveView turns a view argument into a view file path. An argument with a path separator or
 // a .view or .toml suffix is a file, and anything else is the name of a central view.
 func resolveView(arg string) (string, error) {
-	if strings.ContainsRune(arg, filepath.Separator) || strings.HasSuffix(arg, ".view") || strings.HasSuffix(arg, ".toml") {
+	if isViewFilePath(arg) {
 		return arg, nil
 	}
 	dir, e := viewsDir()

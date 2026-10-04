@@ -89,3 +89,64 @@ func TestEditViewRefusesAMissingViewAndAFailingEditor(t *testing.T) {
 		t.Error("a failing editor was reported as success")
 	}
 }
+
+func TestNewViewWritesACentralViewWithAbsolutePaths(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	repo := t.TempDir()
+	path, err := newView("surfaces", []string{repo, "relative/dir"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(config, "vw", "views", "surfaces.toml"); path != want {
+		t.Fatalf("path = %q, want %q", path, want)
+	}
+	v, err := loadViewFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if len(v.Members) != 2 || v.Members[0].Path != repo || v.Members[1].Path != filepath.Join(cwd, "relative/dir") {
+		t.Errorf("members = %+v", v.Members)
+	}
+}
+
+func TestNewViewWritesALocalViewWithRelativePaths(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repos", "api")
+	path, err := newView(filepath.Join(dir, "team.view"), []string{repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "path = 'repos/api'") {
+		t.Errorf("file = %q, want a path relative to the view file", data)
+	}
+	v, err := loadViewFile(path)
+	if err != nil || v.Members[0].Path != repo {
+		t.Errorf("members = %+v, %v, want %q", v.Members, err, repo)
+	}
+}
+
+func TestNewViewWithoutPathsWritesAnEmptyView(t *testing.T) {
+	path, err := newView(filepath.Join(t.TempDir(), "empty.view"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, err := loadViewFile(path); err != nil || len(v.Members) != 0 {
+		t.Errorf("view = %+v, %v", v, err)
+	}
+}
+
+func TestNewViewRefusesToOverwrite(t *testing.T) {
+	path := writeViewFile(t, t.TempDir(), "x.view", "# mine\n")
+	if _, err := newView(path, nil); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("error = %v, want one saying the file already exists", err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "# mine\n" {
+		t.Errorf("existing file was changed to %q", data)
+	}
+}
