@@ -103,3 +103,33 @@ func TestLoadViewFileRejectsBadFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveView(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	central := filepath.Join(home, ".config", "vw", "views", "surfaces.toml")
+	tests := []struct{ arg, want string }{
+		{"surfaces", central},
+		{"./team.view", "./team.view"},
+		{"team.view", "team.view"},
+		{"team.toml", "team.toml"},
+		{"views/x", "views/x"},
+		{"/abs/x", "/abs/x"},
+	}
+	for _, tt := range tests {
+		got, err := resolveView(tt.arg)
+		if err != nil || got != tt.want {
+			t.Errorf("resolveView(%q) = %q, %v, want %q", tt.arg, got, err, tt.want)
+		}
+	}
+}
+
+func TestResolveViewHonoursXDGConfigHome(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	got, err := resolveView("surfaces")
+	if want := filepath.Join(config, "vw", "views", "surfaces.toml"); err != nil || got != want {
+		t.Errorf("resolveView = %q, %v, want %q", got, err, want)
+	}
+}

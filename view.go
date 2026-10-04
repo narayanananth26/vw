@@ -118,3 +118,28 @@ func loadViewFile(path string) (*view, error) {
 	}
 	return v, nil
 }
+
+// viewsDir is where central views live, ~/.config/vw/views unless XDG_CONFIG_HOME says otherwise.
+func viewsDir() (string, error) {
+	if config := os.Getenv("XDG_CONFIG_HOME"); config != "" {
+		return filepath.Join(config, "vw", "views"), nil
+	}
+	home, e := os.UserHomeDir()
+	if e != nil {
+		return "", e
+	}
+	return filepath.Join(home, ".config", "vw", "views"), nil
+}
+
+// resolveView turns a view argument into a view file path. An argument with a path separator or
+// a .view or .toml suffix is a file, and anything else is the name of a central view.
+func resolveView(arg string) (string, error) {
+	if strings.ContainsRune(arg, filepath.Separator) || strings.HasSuffix(arg, ".view") || strings.HasSuffix(arg, ".toml") {
+		return arg, nil
+	}
+	dir, e := viewsDir()
+	if e != nil {
+		return "", e
+	}
+	return filepath.Join(dir, arg+".toml"), nil
+}
