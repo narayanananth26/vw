@@ -47,6 +47,7 @@ path = "/abs/notes.md"
 	}
 	want := &view{
 		Name:    "surfaces",
+		Path:    path,
 		Mount:   filepath.Join(home, "views/s"),
 		Include: []string{"/api/"},
 		Exclude: []string{"node_modules/", "dist/"},

@@ -198,3 +198,64 @@ func TestCheckMountPoint(t *testing.T) {
 		}
 	}
 }
+
+func TestViewMountSpecLoadsTheViewFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := t.TempDir()
+	mountpoint := filepath.Join(dir, "mnt")
+	path := writeViewFile(t, dir, "team.view", "mount = \"mnt\"\nexclude = [\"dist/\"]\n[[member]]\npath = \"repo\"\n")
+	spec, err := viewMountSpec(&mountFlags{}, []string{path, "-o", "noattrcache"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(mountpoint); err != nil || !fi.IsDir() {
+		t.Errorf("mount point %s was not created: %v", mountpoint, err)
+	}
+	if spec.mountpoint != mountpoint || len(spec.members) != 1 || spec.members[0].Name != "repo" {
+		t.Errorf("spec = %+v", spec)
+	}
+	if !reflect.DeepEqual(spec.exclude, []string{"dist/"}) || !reflect.DeepEqual(spec.fuseOpts, []string{"-o", "noattrcache"}) {
+		t.Errorf("exclude = %v, fuseOpts = %v", spec.exclude, spec.fuseOpts)
+	}
+	if !strings.HasPrefix(spec.scratch, filepath.Join(home, ".local/share/vw/views/team-")) || filepath.Base(spec.scratch) != "root" {
+		t.Errorf("scratch = %q", spec.scratch)
+	}
+}
+
+func TestViewMountSpecKeepsScratchSeparatePerFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var scratch []string
+	for range 2 {
+		path := writeViewFile(t, t.TempDir(), "x.view", "")
+		spec, err := viewMountSpec(&mountFlags{}, []string{path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		scratch = append(scratch, spec.scratch)
+	}
+	if scratch[0] == scratch[1] {
+		t.Errorf("two views named x share scratch %q", scratch[0])
+	}
+}
+
+func TestViewMountSpecRejectsFlagFilters(t *testing.T) {
+	path := writeViewFile(t, t.TempDir(), "x.view", "")
+	for _, mount := range []mountFlags{{include: listFlag{"a"}}, {exclude: listFlag{"a"}}} {
+		if _, err := viewMountSpec(&mount, []string{path}); err == nil {
+			t.Errorf("filter flags %+v were accepted with a view file", mount)
+		}
+	}
+}
+
+func TestFlagMountSpecKeepsTheMountPointScratchDefault(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	spec, err := flagMountSpec(&mountFlags{members: memberFlag{{Name: "a", Path: "/a"}}}, []string{"/x/surfaces", "-o", "ro"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".local/share/vw/views/surfaces/root"); spec.scratch != want || spec.mountpoint != "/x/surfaces" {
+		t.Errorf("spec = %+v, want scratch %q", spec, want)
+	}
+}

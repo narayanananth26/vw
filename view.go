@@ -31,6 +31,7 @@ type viewFile struct {
 // view is a view file with every path made absolute.
 type view struct {
 	Name    string
+	Path    string
 	Mount   string
 	Include []string
 	Exclude []string
@@ -94,7 +95,7 @@ func loadViewFile(path string) (*view, error) {
 	}
 	dir := filepath.Dir(abs)
 	name := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
-	v := &view{Name: name, Include: f.Include, Exclude: f.Exclude}
+	v := &view{Name: name, Path: abs, Include: f.Include, Exclude: f.Exclude}
 	mount := f.Mount
 	if mount == "" {
 		mount = filepath.Join("~", "views", name)

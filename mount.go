@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -183,9 +184,62 @@ func checkMountPoint(path string) error {
 	return nil
 }
 
-const mountUsage = "usage: vw mount [--include pattern]... [--exclude pattern]... [--scratch dir]\n" +
-	"       --member path[:name[:ro]] [--member-include pattern]... [--member-exclude pattern]... ...\n" +
-	"       <mountpoint> [fuse opts...]"
+const mountUsage = "usage: vw mount <view|file> [--scratch dir] [fuse opts...]\n" +
+	"       vw mount [--include pattern]... [--exclude pattern]... [--scratch dir]\n" +
+	"           --member path[:name[:ro]] [--member-include pattern]... [--member-exclude pattern]... ...\n" +
+	"           <mountpoint> [fuse opts...]"
+
+type mountSpec struct {
+	members          []core.Member
+	include, exclude []string
+	mountpoint       string
+	scratch          string
+	fuseOpts         []string
+}
+
+// viewScratchDir keys a view's scratch directory by its file path, so two views with the same
+// name in different places keep separate root files.
+func viewScratchDir(flagValue string, v *view) (string, error) {
+	if flagValue != "" {
+		return filepath.Abs(flagValue)
+	}
+	home, e := os.UserHomeDir()
+	if e != nil {
+		return "", e
+	}
+	sum := sha256.Sum256([]byte(v.Path))
+	return filepath.Join(home, ".local", "share", "vw", "views", fmt.Sprintf("%s-%x", v.Name, sum[:4]), "root"), nil
+}
+
+func flagMountSpec(mount *mountFlags, args []string) (mountSpec, error) {
+	scratch, e := scratchDir(mount.scratch, args[0])
+	if e != nil {
+		return mountSpec{}, e
+	}
+	return mountSpec{members: mount.members, include: mount.include, exclude: mount.exclude, mountpoint: args[0], scratch: scratch, fuseOpts: args[1:]}, nil
+}
+
+func viewMountSpec(mount *mountFlags, args []string) (mountSpec, error) {
+	if len(mount.include) > 0 || len(mount.exclude) > 0 {
+		return mountSpec{}, errors.New("--include and --exclude need --member; a view file sets its own filters")
+	}
+	path, e := resolveView(args[0])
+	if e != nil {
+		return mountSpec{}, e
+	}
+	v, e := loadViewFile(path)
+	if e != nil {
+		return mountSpec{}, e
+	}
+	if e := os.MkdirAll(v.Mount, 0o755); e != nil {
+		return mountSpec{}, e
+	}
+	scratch, e := viewScratchDir(mount.scratch, v)
+	if e != nil {
+		return mountSpec{}, e
+	}
+	return mountSpec{members: v.Members, include: v.Include, exclude: v.Exclude, mountpoint: v.Mount, scratch: scratch, fuseOpts: args[1:]}, nil
+}
 
 func mountCmd(args []string) {
 	var mount mountFlags
@@ -193,37 +247,40 @@ func mountCmd(args []string) {
 	flags.Usage = func() { fmt.Fprintln(os.Stderr, mountUsage) }
 	mount.register(flags)
 	flags.Parse(args)
-	if len(mount.members) == 0 || flags.NArg() < 1 {
+	if flags.NArg() < 1 {
 		flags.Usage()
 		os.Exit(2)
 	}
-	members, skipped := loadMembers(mount.members)
+	build := viewMountSpec
+	if len(mount.members) > 0 {
+		build = flagMountSpec
+	}
+	spec, err := build(&mount, flags.Args())
+	if err != nil {
+		fatal(err)
+	}
+	members, skipped := loadMembers(spec.members)
 	for _, e := range skipped {
 		fmt.Fprintf(os.Stderr, "vw: warning: skipping %v\n", e)
 	}
 	if len(members) == 0 {
 		fatal(errors.New("no usable members"))
 	}
-	mountpoint := flags.Arg(0)
-	if fi, err := os.Stat(mountpoint); err != nil || !fi.IsDir() {
-		fatal(fmt.Errorf("%s is not a directory", mountpoint))
+	if fi, err := os.Stat(spec.mountpoint); err != nil || !fi.IsDir() {
+		fatal(fmt.Errorf("%s is not a directory", spec.mountpoint))
 	}
-	if err := checkMountPoint(mountpoint); err != nil {
+	if err := checkMountPoint(spec.mountpoint); err != nil {
 		fatal(err)
 	}
-	scratch, err := scratchDir(mount.scratch, mountpoint)
+	if err := os.MkdirAll(spec.scratch, 0o755); err != nil {
+		fatal(err)
+	}
+	view, err := core.New(members, core.WithInclude(spec.include...), core.WithExclude(spec.exclude...), core.WithScratch(spec.scratch))
 	if err != nil {
 		fatal(err)
 	}
-	if err := os.MkdirAll(scratch, 0o755); err != nil {
-		fatal(err)
-	}
-	view, err := core.New(members, core.WithInclude(mount.include...), core.WithExclude(mount.exclude...), core.WithScratch(scratch))
-	if err != nil {
-		fatal(err)
-	}
-	fs := viewFS{view: view, scratch: scratch, mounted: fuse.Now()}
+	fs := viewFS{view: view, scratch: spec.scratch, mounted: fuse.Now()}
 	_host = fuse.NewFileSystemHost(&fs)
 	// Mount returns false after Ctrl-C too, so its result can't tell a failed mount from a clean exit.
-	_host.Mount(mountpoint, flags.Args()[1:])
+	_host.Mount(spec.mountpoint, spec.fuseOpts)
 }
