@@ -9,7 +9,7 @@ import (
 )
 
 func compile(patterns []string) gitignore.Matcher {
-	if 0 == len(patterns) {
+	if len(patterns) == 0 {
 		return nil
 	}
 	parsed := make([]gitignore.Pattern, len(patterns))
@@ -32,7 +32,7 @@ func newIncludeSet(patterns []string) includeSet {
 // shows reports whether parts is inside an included path, or is a directory an include could
 // still match below. Without that second case an include of /src/pkg/x.go would hide /src.
 func (self includeSet) shows(parts []string, isDir bool) bool {
-	if 0 == len(self.patterns) || 0 == len(parts) {
+	if len(self.patterns) == 0 || len(parts) == 0 {
 		return true
 	}
 	for i := 1; i <= len(parts); i++ {
@@ -52,7 +52,7 @@ func (self includeSet) matchesBelow(dir []string) bool {
 			continue
 		}
 		elems := strings.Split(strings.TrimPrefix(strings.TrimSuffix(p, "/"), "/"), "/")
-		if 1 == len(elems) && !strings.HasPrefix(p, "/") || anchoredAbove(elems, dir) {
+		if len(elems) == 1 && !strings.HasPrefix(p, "/") || anchoredAbove(elems, dir) {
 			return true
 		}
 	}
@@ -65,7 +65,7 @@ func anchoredAbove(elems, dir []string) bool {
 		if i >= len(elems) {
 			return false
 		}
-		if "**" == elems[i] {
+		if elems[i] == "**" {
 			return true
 		}
 		if ok, _ := path.Match(elems[i], part); !ok {
@@ -78,7 +78,7 @@ func anchoredAbove(elems, dir []string) bool {
 // A file under an excluded directory stays hidden whatever the later patterns say, so every
 // ancestor is tried as a directory first.
 func excludedBy(m gitignore.Matcher, parts []string, isDir bool) bool {
-	if nil == m {
+	if m == nil {
 		return false
 	}
 	for i := 1; i <= len(parts); i++ {
@@ -94,7 +94,7 @@ func excludedBy(m gitignore.Matcher, parts []string, isDir bool) bool {
 // visible.
 func (self *View) Visible(viewPath string, isDir bool) bool {
 	clean := path.Clean("/" + viewPath)
-	if "/" == clean {
+	if clean == "/" {
 		return true
 	}
 	parts := strings.Split(clean[1:], "/")

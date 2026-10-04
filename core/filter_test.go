@@ -7,7 +7,7 @@ func TestVisibleExclude(t *testing.T) {
 		{Name: "api", Path: "/home/api", Exclude: []string{"*.snap", "/build/", "!keep.snap"}},
 		{Name: "web", Path: "/home/web"},
 	}, WithExclude("node_modules/", "/web/dist"))
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
@@ -45,7 +45,7 @@ func TestVisibleKeepsGitWhateverTheFilters(t *testing.T) {
 	view, err := New([]Member{
 		{Name: "api", Path: "/home/api", Exclude: []string{".*"}},
 	}, WithExclude(".git", "api/vendor/"))
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{"/api/.git", "/api/.git/objects/ab", "/api/vendor/lib/.git"} {
@@ -74,7 +74,7 @@ func TestVisibleInclude(t *testing.T) {
 		{Name: "lib", Path: "/home/lib", Include: []string{"/pkg/x.go", "/gen/**/*.go"}},
 		{Name: "cli", Path: "/home/cli"},
 	})
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
@@ -118,7 +118,7 @@ func TestVisibleViewInclude(t *testing.T) {
 		{Name: "api", Path: "/home/api"},
 		{Name: "web", Path: "/home/web"},
 	}, WithInclude("/api/", "/web/src/"), WithExclude("*.snap"))
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
@@ -145,7 +145,7 @@ func TestVisibleViewInclude(t *testing.T) {
 func TestVisibleScratchIgnoresFilters(t *testing.T) {
 	view, err := New([]Member{{Name: "api", Path: "/home/api"}},
 		WithInclude("/api/"), WithExclude("*.md"), WithScratch("/scratch"))
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
 	if !view.Visible("/AGENTS.md", false) {

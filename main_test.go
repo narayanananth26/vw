@@ -29,7 +29,7 @@ func TestMountFlagsBindFiltersToTheClosestMember(t *testing.T) {
 		"--member", "/b:web:ro", "--member-exclude", "dist/",
 		"--member-exclude", "*.log",
 	})
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
 	want := memberFlag{
@@ -49,14 +49,14 @@ func TestMountFlagsBindFiltersToTheClosestMember(t *testing.T) {
 
 func TestMountFlagsRejectMemberFilterWithoutMember(t *testing.T) {
 	for _, flagName := range []string{"--member-include", "--member-exclude"} {
-		if _, err := parseMountFlags([]string{flagName, "x/", "--member", "/a"}); nil == err {
+		if _, err := parseMountFlags([]string{flagName, "x/", "--member", "/a"}); err == nil {
 			t.Errorf("%s before any --member was accepted", flagName)
 		}
 	}
 }
 
 func TestMountFlagsRejectBadMemberSpec(t *testing.T) {
-	if _, err := parseMountFlags([]string{"--member", "/a:b:rw"}); nil == err {
+	if _, err := parseMountFlags([]string{"--member", "/a:b:rw"}); err == nil {
 		t.Error("a member spec with an unknown option was accepted")
 	}
 }
@@ -65,7 +65,7 @@ func TestScratchDirDefaultsToMountpointName(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	got, err := scratchDir("", "/x/surfaces")
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
 	if want := filepath.Join(home, ".local/share/vw/views/surfaces/root"); want != got {
@@ -75,10 +75,10 @@ func TestScratchDirDefaultsToMountpointName(t *testing.T) {
 
 func TestScratchDirFlagBecomesAbsolute(t *testing.T) {
 	got, err := scratchDir("rel/scratch", "/x/surfaces")
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
-	if !filepath.IsAbs(got) || "scratch" != filepath.Base(got) {
+	if !filepath.IsAbs(got) || filepath.Base(got) != "scratch" {
 		t.Errorf("scratchDir = %q, want an absolute path ending in scratch", got)
 	}
 }
@@ -87,12 +87,12 @@ func listView(t *testing.T, fs *viewFS, path string) []string {
 	t.Helper()
 	var names []string
 	errc := fs.Readdir(path, func(name string, _ *fuse.Stat_t, _ int64) bool {
-		if "." != name && ".." != name {
+		if name != "." && name != ".." {
 			names = append(names, name)
 		}
 		return true
 	}, 0, ^uint64(0))
-	if 0 != errc {
+	if errc != 0 {
 		t.Fatalf("Readdir(%q) = %d", path, errc)
 	}
 	slices.Sort(names)
@@ -103,15 +103,15 @@ func TestReaddirHidesEntriesOnlyInListedDirectories(t *testing.T) {
 	dir := t.TempDir()
 	for _, p := range []string{"keep.txt", "node_modules/pkg/index.js"} {
 		full := filepath.Join(dir, p)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); nil != err {
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(full, nil, 0o644); nil != err {
+		if err := os.WriteFile(full, nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	view, err := core.New([]core.Member{{Name: "gw", Path: dir}}, core.WithExclude("node_modules/"))
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
 	fs := &viewFS{view: view}

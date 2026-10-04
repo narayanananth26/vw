@@ -21,7 +21,7 @@ func TestParseMember(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got, err := ParseMember(tt.spec)
-		if nil != err {
+		if err != nil {
 			t.Errorf("ParseMember(%q) error: %v", tt.spec, err)
 			continue
 		}
@@ -33,7 +33,7 @@ func TestParseMember(t *testing.T) {
 
 func TestParseMemberErrors(t *testing.T) {
 	for _, spec := range []string{"", ":api", "/home/a:x:rw", "/home/a:x:ro:extra"} {
-		if _, err := ParseMember(spec); nil == err {
+		if _, err := ParseMember(spec); err == nil {
 			t.Errorf("ParseMember(%q) succeeded, want an error", spec)
 		}
 	}
@@ -44,10 +44,10 @@ func TestNew(t *testing.T) {
 		{Name: "a", Path: "/home/a"},
 		{Name: "api", Path: "/home/b", ReadOnly: true},
 	})
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
-	if 2 != len(view.members) {
+	if len(view.members) != 2 {
 		t.Errorf("got %d members, want 2", len(view.members))
 	}
 	if !view.members["api"].ReadOnly {
@@ -60,7 +60,7 @@ func TestNewRejectsDuplicateNames(t *testing.T) {
 		{Name: "api", Path: "/x/api"},
 		{Name: "api", Path: "/y/api"},
 	})
-	if nil == err {
+	if err == nil {
 		t.Error("New accepted two members named api")
 	}
 }
@@ -70,7 +70,7 @@ func TestNewRejectsFiltersOnFileMember(t *testing.T) {
 		{Name: "notes", Path: "/home/notes.md", File: true, Include: []string{"a"}},
 		{Name: "notes", Path: "/home/notes.md", File: true, Exclude: []string{"a"}},
 	} {
-		if _, err := New([]Member{m}); nil == err {
+		if _, err := New([]Member{m}); err == nil {
 			t.Errorf("New accepted filters on file member %+v", m)
 		}
 	}
@@ -81,13 +81,13 @@ func TestFileMember(t *testing.T) {
 		{Name: "docs", Path: "/home/docs"},
 		{Name: "notes.md", Path: "/home/notes.md", File: true},
 	})
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := view.Resolve("/notes.md"); (Resolved{Kind: InMember, Real: "/home/notes.md", MemberRoot: true}) != got {
 		t.Errorf("Resolve(/notes.md) = %+v", got)
 	}
-	if real, err := view.ResolveRemove("/notes.md"); "" != real || !errors.Is(err, syscall.EBUSY) {
+	if real, err := view.ResolveRemove("/notes.md"); real != "" || !errors.Is(err, syscall.EBUSY) {
 		t.Errorf("ResolveRemove(/notes.md) = %q, %v, want EBUSY", real, err)
 	}
 	for _, pair := range [][2]string{{"/notes.md", "/docs/x"}, {"/docs/x", "/notes.md"}, {"/notes.md", "/other"}} {
@@ -95,14 +95,14 @@ func TestFileMember(t *testing.T) {
 			t.Errorf("ResolvePair(%q, %q) error = %v, want EBUSY", pair[0], pair[1], err)
 		}
 	}
-	if real, err := view.ResolveWrite("/notes.md"); "/home/notes.md" != real || nil != err {
+	if real, err := view.ResolveWrite("/notes.md"); real != "/home/notes.md" || err != nil {
 		t.Errorf("ResolveWrite(/notes.md) = %q, %v", real, err)
 	}
 }
 
 func TestNewRejectsInvalidNames(t *testing.T) {
 	for _, name := range []string{"", ".", "..", "a/b"} {
-		if _, err := New([]Member{{Name: name, Path: "/home/a"}}); nil == err {
+		if _, err := New([]Member{{Name: name, Path: "/home/a"}}); err == nil {
 			t.Errorf("New accepted member name %q", name)
 		}
 	}
@@ -110,10 +110,10 @@ func TestNewRejectsInvalidNames(t *testing.T) {
 
 func TestNewRejectsDotPathWithoutName(t *testing.T) {
 	m, err := ParseMember(".")
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New([]Member{m}); nil == err {
+	if _, err := New([]Member{m}); err == nil {
 		t.Error("New accepted a member named after the path .")
 	}
 }
@@ -125,7 +125,7 @@ func newTestView(t *testing.T) *View {
 		{Name: "api", Path: "/home/b", ReadOnly: true},
 		{Name: "c", Path: "/home/c/"},
 	})
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
 	return view
@@ -242,7 +242,7 @@ func newScratchView(t *testing.T) *View {
 		{Name: "docs", Path: "/home/notes"},
 		{Name: "api", Path: "/home/b", ReadOnly: true},
 	}, WithScratch("/scratch"))
-	if nil != err {
+	if err != nil {
 		t.Fatal(err)
 	}
 	return view
@@ -287,7 +287,7 @@ func TestResolveWriteScratch(t *testing.T) {
 			t.Errorf("ResolveWrite(%q) = %q, %v, want %q, %v", tt.path, real, err, tt.real, tt.err)
 		}
 	}
-	if real, err := view.ResolveRemove("/AGENTS.md"); "/scratch/AGENTS.md" != real || nil != err {
+	if real, err := view.ResolveRemove("/AGENTS.md"); real != "/scratch/AGENTS.md" || err != nil {
 		t.Errorf("ResolveRemove(/AGENTS.md) = %q, %v, want /scratch/AGENTS.md, nil", real, err)
 	}
 }

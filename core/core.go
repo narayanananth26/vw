@@ -76,17 +76,17 @@ func ParseMember(spec string) (Member, error) {
 		return Member{}, fmt.Errorf("member %q has too many fields, want path[:name[:ro]]", spec)
 	}
 	m := Member{Path: fields[0]}
-	if "" == m.Path {
+	if m.Path == "" {
 		return Member{}, fmt.Errorf("member %q has an empty path", spec)
 	}
 	if len(fields) > 1 {
 		m.Name = fields[1]
 	}
-	if "" == m.Name {
+	if m.Name == "" {
 		m.Name = filepath.Base(m.Path)
 	}
 	if len(fields) > 2 {
-		if "ro" != fields[2] {
+		if fields[2] != "ro" {
 			return Member{}, fmt.Errorf("member %q has unknown option %q, want ro", spec, fields[2])
 		}
 		m.ReadOnly = true
@@ -122,7 +122,7 @@ func New(members []Member, opts ...Option) (*View, error) {
 }
 
 func validName(name string) bool {
-	return "" != name && "." != name && ".." != name && !strings.Contains(name, "/")
+	return name != "" && name != "." && name != ".." && !strings.Contains(name, "/")
 }
 
 func split(viewPath string) (name, rest string) {
@@ -134,12 +134,12 @@ func split(viewPath string) (name, rest string) {
 // Resolve cleans viewPath first, so .. cannot climb out of a member.
 func (self *View) Resolve(viewPath string) Resolved {
 	name, rest := split(viewPath)
-	if "" == name {
+	if name == "" {
 		return Resolved{Kind: Root}
 	}
 	m, ok := self.members[name]
 	if !ok {
-		if "" == self.scratch {
+		if self.scratch == "" {
 			return Resolved{Kind: NotFound}
 		}
 		return Resolved{Kind: Scratch, Real: filepath.Join(self.scratch, name, rest)}
@@ -148,7 +148,7 @@ func (self *View) Resolve(viewPath string) Resolved {
 		Kind:       InMember,
 		Real:       filepath.Join(m.Path, rest),
 		ReadOnly:   m.ReadOnly,
-		MemberRoot: "" == rest,
+		MemberRoot: rest == "",
 	}
 }
 
@@ -180,7 +180,7 @@ func writeErr(viewPath string, r Resolved) error {
 	case Root:
 		return syscall.EACCES
 	case NotFound:
-		if _, rest := split(viewPath); "" == rest {
+		if _, rest := split(viewPath); rest == "" {
 			return syscall.EACCES
 		}
 		return syscall.ENOENT
@@ -195,7 +195,7 @@ func writeErr(viewPath string, r Resolved) error {
 // unknown member.
 func (self *View) ResolveWrite(viewPath string) (string, error) {
 	r := self.Resolve(viewPath)
-	if err := writeErr(viewPath, r); nil != err {
+	if err := writeErr(viewPath, r); err != nil {
 		return "", err
 	}
 	return r.Real, nil
@@ -204,7 +204,7 @@ func (self *View) ResolveWrite(viewPath string) (string, error) {
 // ResolveRemove fails like ResolveWrite, and with EBUSY for a member's own directory.
 func (self *View) ResolveRemove(viewPath string) (string, error) {
 	r := self.Resolve(viewPath)
-	if err := writeErr(viewPath, r); nil != err {
+	if err := writeErr(viewPath, r); err != nil {
 		return "", err
 	}
 	if r.MemberRoot {
@@ -220,20 +220,20 @@ func (self *View) ResolvePair(oldPath, newPath string) (string, string, error) {
 	if oldR.MemberRoot || newR.MemberRoot {
 		return "", "", syscall.EBUSY
 	}
-	if "" != oldR.Real && "" != newR.Real && volume(oldPath, oldR) != volume(newPath, newR) {
+	if oldR.Real != "" && newR.Real != "" && volume(oldPath, oldR) != volume(newPath, newR) {
 		return "", "", syscall.EXDEV
 	}
-	if err := writeErr(oldPath, oldR); nil != err {
+	if err := writeErr(oldPath, oldR); err != nil {
 		return "", "", err
 	}
-	if err := writeErr(newPath, newR); nil != err {
+	if err := writeErr(newPath, newR); err != nil {
 		return "", "", err
 	}
 	return oldR.Real, newR.Real, nil
 }
 
 func volume(viewPath string, r Resolved) string {
-	if Scratch == r.Kind {
+	if r.Kind == Scratch {
 		return ""
 	}
 	name, _ := split(viewPath)
