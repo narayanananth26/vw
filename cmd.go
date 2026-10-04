@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -15,7 +16,8 @@ const usage = "usage: vw <command>\n" +
 	"  mount <view|file> [--scratch dir] [fuse opts...]\n" +
 	"  mount --member path[:name[:ro]]... <mountpoint> [fuse opts...]   see vw mount for all flags\n" +
 	"  ls [<view>]     list views, or one view's members\n" +
-	"  path <view>     print a view's mount point"
+	"  path <view>     print a view's mount point\n" +
+	"  edit <view>     open a view file in $EDITOR"
 
 // listViews prints the name of every central view.
 func listViews(w io.Writer) error {
@@ -98,4 +100,43 @@ func pathCmd(args []string) {
 		fatal(e)
 	}
 	fmt.Println(filepath.Clean(v.Mount))
+}
+
+// editView opens a view file in the editor. A view that is mounted keeps its old settings, so it
+// says so once the editor exits.
+func editView(arg string, editor []string, notice io.Writer) error {
+	path, e := resolveView(arg)
+	if e != nil {
+		return e
+	}
+	if _, e := os.Stat(path); e != nil {
+		return e
+	}
+	mounted := false
+	if v, e := loadViewFile(path); e == nil {
+		mounted, _ = isMounted(v.Mount)
+	}
+	cmd := exec.Command(editor[0], append(editor[1:], path)...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if e := cmd.Run(); e != nil {
+		return e
+	}
+	if mounted {
+		fmt.Fprintf(notice, "%s is mounted; remount to apply your changes\n", arg)
+	}
+	return nil
+}
+
+func editCmd(args []string) {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, usage)
+		os.Exit(2)
+	}
+	editor := strings.Fields(os.Getenv("EDITOR"))
+	if len(editor) == 0 {
+		editor = []string{"vi"}
+	}
+	if e := editView(args[0], editor, os.Stderr); e != nil {
+		fatal(e)
+	}
 }

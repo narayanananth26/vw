@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,5 +54,38 @@ func TestListMembersMarksReadOnlyAndMissing(t *testing.T) {
 	}
 	if f := strings.Fields(lines[2]); len(f) != 3 || f[0] != "gone" || f[2] != "missing" {
 		t.Errorf("second member line = %q", lines[2])
+	}
+}
+
+func TestEditViewNotesAMountedView(t *testing.T) {
+	dir := t.TempDir()
+	mounted := writeViewFile(t, dir, "mounted.view", "mount = \"/dev\"\n")
+	idle := writeViewFile(t, dir, "idle.view", "mount = \""+filepath.Join(dir, "idle")+"\"\n")
+	tests := []struct {
+		path string
+		want string
+	}{
+		{mounted, mounted + " is mounted; remount to apply your changes\n"},
+		{idle, ""},
+	}
+	for _, tt := range tests {
+		var notice bytes.Buffer
+		if err := editView(tt.path, []string{"true"}, &notice); err != nil {
+			t.Fatal(err)
+		}
+		if notice.String() != tt.want {
+			t.Errorf("editView(%q) notice = %q, want %q", tt.path, notice.String(), tt.want)
+		}
+	}
+}
+
+func TestEditViewRefusesAMissingViewAndAFailingEditor(t *testing.T) {
+	dir := t.TempDir()
+	if err := editView(filepath.Join(dir, "gone.view"), []string{"true"}, io.Discard); err == nil {
+		t.Error("a missing view file was opened")
+	}
+	path := writeViewFile(t, dir, "x.view", "")
+	if err := editView(path, []string{"false"}, io.Discard); err == nil {
+		t.Error("a failing editor was reported as success")
 	}
 }
