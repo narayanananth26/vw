@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/winfsp/cgofuse/fuse"
@@ -136,17 +137,23 @@ func TestLoadMembersMarksFilesAndDirectories(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	members, err := loadMembers([]core.Member{{Name: "dir", Path: dir}, {Name: "notes.md", Path: file}})
-	if err != nil {
-		t.Fatal(err)
+	members, skipped := loadMembers([]core.Member{{Name: "dir", Path: dir}, {Name: "notes.md", Path: file}})
+	if len(skipped) > 0 {
+		t.Fatal(skipped)
 	}
 	if members[0].File || !members[1].File {
 		t.Errorf("File flags = %v, %v, want false, true", members[0].File, members[1].File)
 	}
 }
 
-func TestLoadMembersRejectsMissingPath(t *testing.T) {
-	if _, err := loadMembers([]core.Member{{Name: "x", Path: filepath.Join(t.TempDir(), "missing")}}); err == nil {
-		t.Error("a missing path was accepted")
+func TestLoadMembersSkipsUnusablePaths(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing")
+	members, skipped := loadMembers([]core.Member{{Name: "missing", Path: missing}, {Name: "dir", Path: dir}})
+	if len(members) != 1 || members[0].Name != "dir" {
+		t.Errorf("members = %+v, want only dir", members)
+	}
+	if len(skipped) != 1 || !strings.Contains(skipped[0].Error(), `member "missing"`) {
+		t.Errorf("skipped = %v, want one error naming the missing member", skipped)
 	}
 }

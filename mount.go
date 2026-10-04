@@ -97,31 +97,41 @@ func scratchDir(flagValue, mountpoint string) (string, error) {
 	return filepath.Join(home, ".local", "share", "vw", "views", filepath.Base(abs), "root"), nil
 }
 
-// loadMembers points each member at a real, symlink-free directory or regular file.
-func loadMembers(members []core.Member) ([]core.Member, error) {
-	for i := range members {
-		m := &members[i]
-		abs, e := filepath.Abs(m.Path)
-		if e != nil {
-			return nil, e
-		}
-		m.Path, e = filepath.EvalSymlinks(abs)
-		if e != nil {
-			return nil, e
-		}
-		fi, e := os.Stat(m.Path)
-		if e != nil {
-			return nil, e
-		}
-		switch {
-		case fi.IsDir():
-		case fi.Mode().IsRegular():
-			m.File = true
-		default:
-			return nil, fmt.Errorf("%s is not a directory or regular file", m.Path)
-		}
+// loadMember points m at a real, symlink-free directory or regular file.
+func loadMember(m core.Member) (core.Member, error) {
+	abs, e := filepath.Abs(m.Path)
+	if e != nil {
+		return m, e
 	}
-	return members, nil
+	m.Path, e = filepath.EvalSymlinks(abs)
+	if e != nil {
+		return m, e
+	}
+	fi, e := os.Stat(m.Path)
+	if e != nil {
+		return m, e
+	}
+	switch {
+	case fi.IsDir():
+	case fi.Mode().IsRegular():
+		m.File = true
+	default:
+		return m, fmt.Errorf("%s is not a directory or regular file", m.Path)
+	}
+	return m, nil
+}
+
+// loadMembers loads every member it can and reports the ones it had to leave out.
+func loadMembers(members []core.Member) (loaded []core.Member, skipped []error) {
+	for _, m := range members {
+		m, e := loadMember(m)
+		if e != nil {
+			skipped = append(skipped, fmt.Errorf("member %q: %w", m.Name, e))
+			continue
+		}
+		loaded = append(loaded, m)
+	}
+	return loaded, skipped
 }
 
 const mountUsage = "usage: vw mount [--include pattern]... [--exclude pattern]... [--scratch dir]\n" +
@@ -138,9 +148,12 @@ func mountCmd(args []string) {
 		flags.Usage()
 		os.Exit(2)
 	}
-	members, err := loadMembers(mount.members)
-	if err != nil {
-		fatal(err)
+	members, skipped := loadMembers(mount.members)
+	for _, e := range skipped {
+		fmt.Fprintf(os.Stderr, "vw: warning: skipping %v\n", e)
+	}
+	if len(members) == 0 {
+		fatal(errors.New("no usable members"))
 	}
 	mountpoint := flags.Arg(0)
 	if fi, err := os.Stat(mountpoint); err != nil || !fi.IsDir() {
