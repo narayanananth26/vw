@@ -49,17 +49,6 @@ func (self *viewFS) real(path string) (string, int) {
 	return r.Real, 0
 }
 
-func (self *viewFS) realVisible(path string, isDir bool) (string, int) {
-	real, errc := self.real(path)
-	if 0 != errc {
-		return "", errc
-	}
-	if !self.view.Visible(path, isDir) {
-		return "", -fuse.ENOENT
-	}
-	return real, 0
-}
-
 func (self *viewFS) realWrite(path string) (string, int) {
 	real, e := self.view.ResolveWrite(path)
 	return real, errno(e)
@@ -159,7 +148,7 @@ func (self *viewFS) Symlink(target string, newpath string) (errc int) {
 
 func (self *viewFS) Readlink(path string) (errc int, target string) {
 	defer trace(path)(&errc, &target)
-	path, errc = self.realVisible(path, false)
+	path, errc = self.real(path)
 	if 0 != errc {
 		return
 	}
@@ -223,7 +212,7 @@ func (self *viewFS) Open(path string, flags int) (errc int, fh uint64) {
 	if syscall.O_RDONLY != flags&syscall.O_ACCMODE || 0 != flags&syscall.O_TRUNC {
 		path, errc = self.realWrite(path)
 	} else {
-		path, errc = self.realVisible(path, false)
+		path, errc = self.real(path)
 	}
 	return self.open(path, errc, flags, 0)
 }
@@ -247,15 +236,11 @@ func (self *viewFS) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int
 			self.rootStat(stat)
 			return 0
 		}
-		viewPath := path
 		path, errc = self.real(path)
 		if 0 != errc {
 			return
 		}
 		errc = errno(syscall.Lstat(path, &stgo))
-		if 0 == errc && !self.view.Visible(viewPath, syscall.S_IFDIR == stgo.Mode&syscall.S_IFMT) {
-			return -fuse.ENOENT
-		}
 	} else {
 		errc = errno(syscall.Fstat(int(fh), &stgo))
 	}
@@ -311,7 +296,7 @@ func (self *viewFS) Opendir(path string) (errc int, fh uint64) {
 	if core.Root == self.view.Resolve(path).Kind {
 		return 0, ^uint64(0)
 	}
-	path, errc = self.realVisible(path, true)
+	path, errc = self.real(path)
 	if 0 != errc {
 		return errc, ^uint64(0)
 	}
@@ -344,12 +329,13 @@ func (self *viewFS) Readdir(path string,
 			}
 		}
 	case core.InMember:
+		listed := self.view.Visible(path, true)
 		entries, e := listDir(r.Real)
 		if nil != e {
 			return errno(e)
 		}
 		for _, entry := range entries {
-			if self.view.Visible(filepath.Join(path, entry.Name()), entry.IsDir()) {
+			if !listed || self.view.Visible(filepath.Join(path, entry.Name()), entry.IsDir()) {
 				nams = append(nams, entry.Name())
 			}
 		}
