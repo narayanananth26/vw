@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/winfsp/cgofuse/fuse"
 
@@ -132,6 +133,35 @@ func loadMembers(members []core.Member) (loaded []core.Member, skipped []error) 
 		loaded = append(loaded, m)
 	}
 	return loaded, skipped
+}
+
+func deviceOf(path string) (int32, error) {
+	fi, e := os.Stat(path)
+	if e != nil {
+		return 0, e
+	}
+	return fi.Sys().(*syscall.Stat_t).Dev, nil
+}
+
+// isMounted reports whether a filesystem is mounted at path, which holds when path is on a
+// different device from its parent. A path that does not exist is not mounted.
+func isMounted(path string) (bool, error) {
+	abs, e := filepath.Abs(path)
+	if e != nil {
+		return false, e
+	}
+	dev, e := deviceOf(abs)
+	if errors.Is(e, os.ErrNotExist) {
+		return false, nil
+	}
+	if e != nil {
+		return false, e
+	}
+	parent, e := deviceOf(filepath.Dir(abs))
+	if e != nil {
+		return false, e
+	}
+	return dev != parent, nil
 }
 
 const mountUsage = "usage: vw mount [--include pattern]... [--exclude pattern]... [--scratch dir]\n" +

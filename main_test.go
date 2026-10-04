@@ -157,3 +157,21 @@ func TestLoadMembersSkipsUnusablePaths(t *testing.T) {
 		t.Errorf("skipped = %v, want one error naming the missing member", skipped)
 	}
 }
+
+func TestIsMounted(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		name, path string
+		want       bool
+	}{
+		{"plain directory", dir, false},
+		{"missing path", filepath.Join(dir, "missing"), false},
+		{"devfs", "/dev", true},
+	}
+	for _, tt := range tests {
+		got, err := isMounted(tt.path)
+		if err != nil || got != tt.want {
+			t.Errorf("%s: isMounted(%q) = %v, %v, want %v", tt.name, tt.path, got, err, tt.want)
+		}
+	}
+}
