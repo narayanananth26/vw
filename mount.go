@@ -72,6 +72,7 @@ type mountFlags struct {
 	include, exclude listFlag
 	members          memberFlag
 	scratch          string
+	readyFD          int
 }
 
 func (self *mountFlags) register(set *flag.FlagSet) {
@@ -79,6 +80,7 @@ func (self *mountFlags) register(set *flag.FlagSet) {
 	set.Var(&self.exclude, "exclude", "hide paths matching this gitignore pattern in the whole view; repeat for more")
 	set.Var(&self.members, "member", "folder to show, as path[:name[:ro]]; repeat for more")
 	set.StringVar(&self.scratch, "scratch", "", "folder holding files created at the view root; default ~/.local/share/vw/views/<mountpoint name>/root")
+	set.IntVar(&self.readyFD, "ready-fd", 0, "internal: file descriptor to write one byte to once the view is mounted")
 	set.Var(&memberFilterFlag{members: &self.members}, "member-include", "like --include, for the closest --member before it")
 	set.Var(&memberFilterFlag{members: &self.members, exclude: true}, "member-exclude", "like --exclude, for the closest --member before it")
 }
@@ -195,6 +197,7 @@ type mountSpec struct {
 	mountpoint       string
 	scratch          string
 	fuseOpts         []string
+	readyFD          int
 }
 
 // viewScratchDir keys a view's scratch directory by its file path, so two views with the same
@@ -216,7 +219,7 @@ func flagMountSpec(mount *mountFlags, args []string) (mountSpec, error) {
 	if e != nil {
 		return mountSpec{}, e
 	}
-	return mountSpec{members: mount.members, include: mount.include, exclude: mount.exclude, mountpoint: args[0], scratch: scratch, fuseOpts: args[1:]}, nil
+	return mountSpec{members: mount.members, include: mount.include, exclude: mount.exclude, mountpoint: args[0], scratch: scratch, fuseOpts: args[1:], readyFD: mount.readyFD}, nil
 }
 
 func viewMountSpec(mount *mountFlags, args []string) (mountSpec, error) {
@@ -238,7 +241,16 @@ func viewMountSpec(mount *mountFlags, args []string) (mountSpec, error) {
 	if e != nil {
 		return mountSpec{}, e
 	}
-	return mountSpec{members: v.Members, include: v.Include, exclude: v.Exclude, mountpoint: v.Mount, scratch: scratch, fuseOpts: args[1:]}, nil
+	return mountSpec{members: v.Members, include: v.Include, exclude: v.Exclude, mountpoint: v.Mount, scratch: scratch, fuseOpts: args[1:], readyFD: mount.readyFD}, nil
+}
+
+// readyFile wraps the descriptor a parent passed in, or returns nil when there is none. Descriptors
+// 0 to 2 are the standard streams, so they never count.
+func readyFile(fd int) *os.File {
+	if fd < 3 {
+		return nil
+	}
+	return os.NewFile(uintptr(fd), "ready")
 }
 
 func mountCmd(args []string) {
@@ -279,7 +291,7 @@ func mountCmd(args []string) {
 	if err != nil {
 		fatal(err)
 	}
-	fs := viewFS{view: view, scratch: spec.scratch, mounted: fuse.Now()}
+	fs := viewFS{view: view, scratch: spec.scratch, mounted: fuse.Now(), ready: readyFile(spec.readyFD)}
 	_host = fuse.NewFileSystemHost(&fs)
 	// Mount returns false after Ctrl-C too, so its result can't tell a failed mount from a clean exit.
 	_host.Mount(spec.mountpoint, spec.fuseOpts)

@@ -37,6 +37,17 @@ type viewFS struct {
 	view    *core.View
 	scratch string
 	mounted fuse.Timespec
+	ready   *os.File
+}
+
+// Init runs once the filesystem is up. It tells whoever started this process by writing one byte
+// to the ready descriptor, so a parent that sees the pipe close without a byte knows the mount failed.
+func (self *viewFS) Init() {
+	if self.ready == nil {
+		return
+	}
+	self.ready.Write([]byte{1})
+	self.ready.Close()
 }
 
 func (self *viewFS) real(path string) (string, int) {

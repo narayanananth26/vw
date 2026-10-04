@@ -259,3 +259,35 @@ func TestFlagMountSpecKeepsTheMountPointScratchDefault(t *testing.T) {
 		t.Errorf("spec = %+v, want scratch %q", spec, want)
 	}
 }
+
+func TestInitWritesOneByteToTheReadyDescriptor(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	(&viewFS{ready: w}).Init()
+	got, err := io.ReadAll(r)
+	if err != nil || len(got) != 1 {
+		t.Errorf("read %v, %v, want one byte and then EOF", got, err)
+	}
+}
+
+func TestInitWithoutAReadyDescriptor(t *testing.T) {
+	(&viewFS{}).Init()
+}
+
+func TestMountFlagsReadTheReadyDescriptor(t *testing.T) {
+	mount, err := parseMountFlags([]string{"--ready-fd", "5"})
+	if err != nil || mount.readyFD != 5 {
+		t.Errorf("readyFD = %d, %v, want 5", mount.readyFD, err)
+	}
+}
+
+func TestReadyFileIgnoresStandardStreams(t *testing.T) {
+	for _, fd := range []int{0, 1, 2, -1} {
+		if readyFile(fd) != nil {
+			t.Errorf("readyFile(%d) returned a file", fd)
+		}
+	}
+}
