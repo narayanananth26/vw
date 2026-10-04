@@ -3,9 +3,15 @@ package main
 import (
 	"flag"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
+
+	"github.com/winfsp/cgofuse/fuse"
+
+	"vw/core"
 )
 
 func parseMountFlags(args []string) (*mountFlags, error) {
@@ -74,5 +80,52 @@ func TestScratchDirFlagBecomesAbsolute(t *testing.T) {
 	}
 	if !filepath.IsAbs(got) || "scratch" != filepath.Base(got) {
 		t.Errorf("scratchDir = %q, want an absolute path ending in scratch", got)
+	}
+}
+
+func listView(t *testing.T, fs *viewFS, path string) []string {
+	t.Helper()
+	var names []string
+	errc := fs.Readdir(path, func(name string, _ *fuse.Stat_t, _ int64) bool {
+		if "." != name && ".." != name {
+			names = append(names, name)
+		}
+		return true
+	}, 0, ^uint64(0))
+	if 0 != errc {
+		t.Fatalf("Readdir(%q) = %d", path, errc)
+	}
+	slices.Sort(names)
+	return names
+}
+
+func TestReaddirHidesEntriesOnlyInListedDirectories(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{"keep.txt", "node_modules/pkg/index.js"} {
+		full := filepath.Join(dir, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); nil != err {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, nil, 0o644); nil != err {
+			t.Fatal(err)
+		}
+	}
+	view, err := core.New([]core.Member{{Name: "gw", Path: dir}}, core.WithExclude("node_modules/"))
+	if nil != err {
+		t.Fatal(err)
+	}
+	fs := &viewFS{view: view}
+	tests := []struct {
+		path string
+		want []string
+	}{
+		{"/gw", []string{"keep.txt"}},
+		{"/gw/node_modules", []string{"pkg"}},
+		{"/gw/node_modules/pkg", []string{"index.js"}},
+	}
+	for _, tt := range tests {
+		if got := listView(t, fs, tt.path); !slices.Equal(tt.want, got) {
+			t.Errorf("Readdir(%q) = %v, want %v", tt.path, got, tt.want)
+		}
 	}
 }
