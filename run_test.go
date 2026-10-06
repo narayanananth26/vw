@@ -208,3 +208,14 @@ func TestRunViewKeepsTheExitStatusWhenUnmountFails(t *testing.T) {
 		t.Error("marker removed although the view is still mounted")
 	}
 }
+
+func TestUserShellFollowsSHELLAndDefaultsToSh(t *testing.T) {
+	t.Setenv("SHELL", "/bin/zsh")
+	if got := userShell(); got != "/bin/zsh" {
+		t.Errorf("userShell = %q, want /bin/zsh", got)
+	}
+	t.Setenv("SHELL", "")
+	if got := userShell(); got != "/bin/sh" {
+		t.Errorf("userShell = %q, want /bin/sh", got)
+	}
+}

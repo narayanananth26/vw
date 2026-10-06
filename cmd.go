@@ -21,6 +21,7 @@ const usage = "usage: vw <command>\n" +
 	"  path <view>     print a view's mount point\n" +
 	"  edit <view>     open a view file in $EDITOR\n" +
 	"  run <view> [--] <command> [args...]   run a command inside a view, mounting it if needed\n" +
+	"  shell <view>    open $SHELL inside a view, mounting it if needed\n" +
 	"  new <view> [path...]   create a view; a name goes in the central directory, a file path stays where it is"
 
 // listViews prints the name of every central view.
