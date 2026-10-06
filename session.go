@@ -25,6 +25,22 @@ func joinSession(lockPath string) (*session, error) {
 	return &session{file: file}, nil
 }
 
+// lockExclusive blocks until it holds an exclusive lock on path, which closing the file releases.
+func lockExclusive(path string) (*os.File, error) {
+	if e := os.MkdirAll(filepath.Dir(path), 0o755); e != nil {
+		return nil, e
+	}
+	file, e := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if e != nil {
+		return nil, e
+	}
+	if e := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); e != nil {
+		file.Close()
+		return nil, e
+	}
+	return file, nil
+}
+
 func (self *session) leave() (bool, error) {
 	fd := int(self.file.Fd())
 	if e := syscall.Flock(fd, syscall.LOCK_UN); e != nil {

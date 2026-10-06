@@ -79,3 +79,33 @@ func TestJoiningWaitsForTheLastSessionToFinishUnmounting(t *testing.T) {
 		t.Fatal("did not join after the last session closed")
 	}
 }
+
+func TestLockExclusiveWaitsForTheHolderToClose(t *testing.T) {
+	path := lockPath(t)
+	first, err := lockExclusive(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan error, 1)
+	go func() {
+		second, err := lockExclusive(path)
+		if err == nil {
+			second.Close()
+		}
+		got <- err
+	}()
+	select {
+	case <-got:
+		t.Fatal("a second exclusive lock was granted while the first was held")
+	case <-time.After(100 * time.Millisecond):
+	}
+	first.Close()
+	select {
+	case err := <-got:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the second lock never arrived after the first was released")
+	}
+}
