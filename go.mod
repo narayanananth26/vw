@@ -6,6 +6,7 @@ require (
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/winfsp/cgofuse v1.6.0
+	golang.org/x/sys v0.46.0
 )
 
 require (
