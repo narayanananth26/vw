@@ -200,18 +200,25 @@ type mountSpec struct {
 	readyFD          int
 }
 
-// viewScratchDir keys a view's scratch directory by its file path, so two views with the same
-// name in different places keep separate root files.
-func viewScratchDir(flagValue string, v *view) (string, error) {
-	if flagValue != "" {
-		return filepath.Abs(flagValue)
-	}
+func viewDataDir(v *view) (string, error) {
 	home, e := os.UserHomeDir()
 	if e != nil {
 		return "", e
 	}
+	// key by view path
 	sum := sha256.Sum256([]byte(v.Path))
-	return filepath.Join(home, ".local", "share", "vw", "views", fmt.Sprintf("%s-%x", v.Name, sum[:4]), "root"), nil
+	return filepath.Join(home, ".local", "share", "vw", "views", fmt.Sprintf("%s-%x", v.Name, sum[:4])), nil
+}
+
+func viewScratchDir(flagValue string, v *view) (string, error) {
+	if flagValue != "" {
+		return filepath.Abs(flagValue)
+	}
+	dir, e := viewDataDir(v)
+	if e != nil {
+		return "", e
+	}
+	return filepath.Join(dir, "root"), nil
 }
 
 func flagMountSpec(mount *mountFlags, args []string) (mountSpec, error) {
