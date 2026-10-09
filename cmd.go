@@ -17,7 +17,7 @@ import (
 const usage = "usage: vw <command>\n" +
 	"  mount <view|file> [--scratch dir] [fuse opts...]\n" +
 	"  mount --member path[:name[:ro]]... <mountpoint> [fuse opts...]   see vw mount for all flags\n" +
-	"  ls [<view>]     list views, or one view's members\n" +
+	"  list [<view>]     list views, or one view's members\n" +
 	"  path <view>     print a view's mount point\n" +
 	"  edit <view>     open a view file in $EDITOR\n" +
 	"  run <view> [--] <command> [args...]   run a command inside a view, mounting it if needed\n" +
@@ -79,7 +79,7 @@ func openView(arg string) (*view, error) {
 	return loadViewFile(path)
 }
 
-func lsCmd(args []string) {
+func listCmd(args []string) {
 	var e error
 	switch len(args) {
 	case 0:
