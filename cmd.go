@@ -107,8 +107,15 @@ func pathCmd(args []string) {
 	fmt.Println(filepath.Clean(v.Mount))
 }
 
-// editView opens a view file in the editor. A view that is mounted keeps its old settings, so it
-// says so once the editor exits.
+// noticeIfMounted tells the user to remount when v is mounted, because a mounted view keeps the
+// settings it mounted with.
+func noticeIfMounted(v *view, arg string, w io.Writer) {
+	if mounted, _ := isMounted(v.Mount); mounted {
+		fmt.Fprintf(w, "%s is mounted; remount to apply your changes\n", arg)
+	}
+}
+
+// editView opens a view file in the editor, then says to remount if the view is mounted.
 func editView(arg string, editor []string, notice io.Writer) error {
 	path, e := resolveView(arg)
 	if e != nil {
@@ -117,17 +124,14 @@ func editView(arg string, editor []string, notice io.Writer) error {
 	if _, e := os.Stat(path); e != nil {
 		return e
 	}
-	mounted := false
-	if v, e := loadViewFile(path); e == nil {
-		mounted, _ = isMounted(v.Mount)
-	}
+	before, _ := loadViewFile(path)
 	cmd := exec.Command(editor[0], append(editor[1:], path)...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if e := cmd.Run(); e != nil {
 		return e
 	}
-	if mounted {
-		fmt.Fprintf(notice, "%s is mounted; remount to apply your changes\n", arg)
+	if before != nil {
+		noticeIfMounted(before, arg, notice)
 	}
 	return nil
 }
