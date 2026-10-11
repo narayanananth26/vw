@@ -429,7 +429,7 @@ func fatal(err error) {
 
 func main() {
 	syscall.Umask(0)
-	commands := map[string]func([]string){"mount": mountCmd, "list": listCmd, "path": pathCmd, "edit": editCmd, "new": newCmd, "add": addCmd, "rm": rmCmd, "run": runCmd, "shell": shellCmd}
+	commands := map[string]func([]string){"mount": mountCmd, "list": listCmd, "path": pathCmd, "edit": editCmd, "new": newCmd, "add": addCmd, "rm": rmCmd, "run": runCmd, "shell": shellCmd, "unmount": unmountCmd}
 	if len(os.Args) < 2 || commands[os.Args[1]] == nil {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)

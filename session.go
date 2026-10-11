@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -39,6 +40,26 @@ func lockExclusive(path string) (*os.File, error) {
 		return nil, e
 	}
 	return file, nil
+}
+
+// sessionsActive reports whether any session holds the lock at lockPath.
+func sessionsActive(lockPath string) (bool, error) {
+	file, e := os.Open(lockPath)
+	if errors.Is(e, os.ErrNotExist) {
+		return false, nil
+	}
+	if e != nil {
+		return false, e
+	}
+	defer file.Close()
+	switch e := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); e {
+	case nil:
+		return false, nil
+	case syscall.EWOULDBLOCK:
+		return true, nil
+	default:
+		return false, e
+	}
 }
 
 func (self *session) leave() (bool, error) {

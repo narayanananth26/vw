@@ -109,3 +109,19 @@ func TestLockExclusiveWaitsForTheHolderToClose(t *testing.T) {
 		t.Fatal("the second lock never arrived after the first was released")
 	}
 }
+
+func TestSessionsActiveSeesJoinedSessions(t *testing.T) {
+	path := lockPath(t)
+	if active, err := sessionsActive(path); err != nil || active {
+		t.Fatalf("no lock file: sessionsActive = %v, %v, want false", active, err)
+	}
+	s := mustJoin(t, path)
+	if active, err := sessionsActive(path); err != nil || !active {
+		t.Errorf("joined: sessionsActive = %v, %v, want true", active, err)
+	}
+	mustLeave(t, s)
+	s.close()
+	if active, err := sessionsActive(path); err != nil || active {
+		t.Errorf("left: sessionsActive = %v, %v, want false", active, err)
+	}
+}

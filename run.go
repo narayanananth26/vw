@@ -159,6 +159,52 @@ func endSession(v *view, dir string, sess *session, ops mountOps, warn io.Writer
 	os.Remove(started)
 }
 
+// unmountView unmounts a view unless a run or shell is using it. A view that is not mounted is left
+// alone without complaint.
+func unmountView(arg string, ops mountOps) error {
+	v, e := openView(arg)
+	if e != nil {
+		return e
+	}
+	dir, e := viewDataDir(v)
+	if e != nil {
+		return e
+	}
+	lock, e := lockExclusive(filepath.Join(dir, "start.lock"))
+	if e != nil {
+		return e
+	}
+	defer lock.Close()
+	mounted, e := isMounted(v.Mount)
+	if e != nil || !mounted {
+		return e
+	}
+	active, e := sessionsActive(filepath.Join(dir, "session.lock"))
+	if e != nil {
+		return e
+	}
+	if active {
+		return fmt.Errorf("%s is in use by a running vw run or shell", arg)
+	}
+	if e := ops.unmount(v.Mount); e != nil {
+		return e
+	}
+	if e := os.Remove(filepath.Join(dir, "started")); e != nil && !errors.Is(e, os.ErrNotExist) {
+		return e
+	}
+	return nil
+}
+
+func unmountCmd(args []string) {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, usage)
+		os.Exit(2)
+	}
+	if e := unmountView(args[0], systemMountOps); e != nil {
+		fatal(e)
+	}
+}
+
 // runView runs argv with the view as its working directory and returns its exit status. It mounts
 // the view if needed and unmounts it when the last session ends.
 func runView(arg string, argv []string) (int, error) {

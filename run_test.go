@@ -208,3 +208,52 @@ func TestRunViewKeepsTheExitStatusWhenUnmountFails(t *testing.T) {
 		t.Error("marker removed although the view is still mounted")
 	}
 }
+
+func TestUnmountViewUnmountsAMountedViewAndClearsTheMarker(t *testing.T) {
+	view := mountedViewAtDev(t)
+	marker := startedMarker(t, view)
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var fake fakeOps
+	if err := unmountView(view, fake.ops()); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.unmounts) != 1 || fake.unmounts[0] != "/dev" || exists(marker) {
+		t.Errorf("unmounts = %v, marker present = %v, want one unmount of /dev and no marker", fake.unmounts, exists(marker))
+	}
+}
+
+func TestUnmountViewSucceedsQuietlyWhenNotMounted(t *testing.T) {
+	view, _ := unmountedView(t)
+	var fake fakeOps
+	if err := unmountView(view, fake.ops()); err != nil || len(fake.unmounts) != 0 {
+		t.Errorf("unmountView = %v, unmounts = %v, want no error and no unmount", err, fake.unmounts)
+	}
+}
+
+func TestUnmountViewRefusesWhileASessionIsActive(t *testing.T) {
+	view := mountedViewAtDev(t)
+	v, _ := openView(view)
+	dir, _ := viewDataDir(v)
+	s := mustJoin(t, filepath.Join(dir, "session.lock"))
+	defer s.close()
+	var fake fakeOps
+	if err := unmountView(view, fake.ops()); err == nil || len(fake.unmounts) != 0 {
+		t.Errorf("unmountView = %v, unmounts = %v, want an error and no unmount", err, fake.unmounts)
+	}
+}
+
+func TestUnmountViewReportsAFailedUnmountAndKeepsTheMarker(t *testing.T) {
+	view := mountedViewAtDev(t)
+	marker := startedMarker(t, view)
+	os.MkdirAll(filepath.Dir(marker), 0o755)
+	os.WriteFile(marker, nil, 0o644)
+	fake := fakeOps{unmountErr: errors.New("Resource busy")}
+	if err := unmountView(view, fake.ops()); err == nil || !exists(marker) {
+		t.Errorf("unmountView = %v, marker present = %v, want an error and the marker kept", err, exists(marker))
+	}
+}

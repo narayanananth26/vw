@@ -28,7 +28,8 @@ const usage = "usage: vw <command>\n" +
 	"  shell <view>    open $SHELL inside a view, mounting it if needed\n" +
 	"  new <view> [path [--as name] [--ro]]... [--mount path]   create a view; a name goes in the central directory, a file path stays where it is\n" +
 	"  add <view> <path> [--as name] [--ro]   add a member to a view\n" +
-	"  rm <view> <member>   remove a member from a view"
+	"  rm <view> <member>   remove a member from a view\n" +
+	"  unmount <view>   unmount a view unless a run or shell is using it"
 
 // listViews prints the name of every central view, or a JSON array of their names and files.
 func listViews(w io.Writer, asJSON bool) error {
