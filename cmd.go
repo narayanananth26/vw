@@ -25,7 +25,7 @@ const usage = "usage: vw <command>\n" +
 	"  edit <view>     open a view file in $EDITOR\n" +
 	"  run <view> [--] <command> [args...]   run a command inside a view, mounting it if needed\n" +
 	"  shell <view>    open $SHELL inside a view, mounting it if needed\n" +
-	"  new <view> [path...]   create a view; a name goes in the central directory, a file path stays where it is\n" +
+	"  new <view> [path [--as name] [--ro]]... [--mount path]   create a view; a name goes in the central directory, a file path stays where it is\n" +
 	"  add <view> <path> [--as name] [--ro]   add a member to a view\n" +
 	"  rm <view> <member>   remove a member from a view"
 
@@ -217,16 +217,42 @@ func newView(arg string, members []core.Member, mount string) (string, error) {
 	return file, out.Close()
 }
 
+// parseNewArgs reads <view> [path [--as name] [--ro]]... [--mount path], with flags anywhere. --as
+// and --ro apply to the closest path before them.
+func parseNewArgs(args []string) (view string, members []core.Member, mount string, err error) {
+	var list memberFlag
+	set := flag.NewFlagSet("new", flag.ContinueOnError)
+	set.SetOutput(io.Discard)
+	set.Var(&memberAsFlag{members: &list}, "as", "")
+	set.Var(&memberRoFlag{members: &list}, "ro", "")
+	set.StringVar(&mount, "mount", "", "")
+	for {
+		if err = set.Parse(args); err != nil {
+			return
+		}
+		if set.NArg() == 0 {
+			break
+		}
+		if view == "" {
+			view = set.Arg(0)
+		} else if err = list.Set(set.Arg(0)); err != nil {
+			return
+		}
+		args = set.Args()[1:]
+	}
+	if view == "" {
+		err = errors.New("missing view")
+	}
+	return view, list, mount, err
+}
+
 func newCmd(args []string) {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, usage)
+	view, members, mount, e := parseNewArgs(args)
+	if e != nil {
+		fmt.Fprintf(os.Stderr, "vw: %v\n%s\n", e, usage)
 		os.Exit(2)
 	}
-	var members []core.Member
-	for _, p := range args[1:] {
-		members = append(members, core.Member{Name: filepath.Base(p), Path: p})
-	}
-	path, e := newView(args[0], members, "")
+	path, e := newView(view, members, mount)
 	if e != nil {
 		fatal(e)
 	}

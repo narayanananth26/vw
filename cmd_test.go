@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -371,5 +372,60 @@ func TestRemoveMemberNotesAMountedView(t *testing.T) {
 	}
 	if want := path + " is mounted; remount to apply your changes\n"; notice.String() != want {
 		t.Errorf("notice = %q, want %q", notice.String(), want)
+	}
+}
+
+func TestParseNewArgsBindsModifiersToTheClosestPath(t *testing.T) {
+	view, members, mount, err := parseNewArgs([]string{"x", "/a", "--ro", "/b", "--as", "api", "--mount", "/m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []core.Member{
+		{Name: "a", Path: "/a", ReadOnly: true},
+		{Name: "api", Path: "/b"},
+	}
+	if view != "x" || mount != "/m" || !reflect.DeepEqual(want, members) {
+		t.Errorf("view = %q, members = %+v, mount = %q", view, members, mount)
+	}
+}
+
+func TestParseNewArgsAcceptsFlagsBeforeTheView(t *testing.T) {
+	view, members, mount, err := parseNewArgs([]string{"--mount", "/m", "x", "/a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view != "x" || mount != "/m" || !reflect.DeepEqual(pathMembers("/a"), members) {
+		t.Errorf("view = %q, members = %+v, mount = %q", view, members, mount)
+	}
+}
+
+func TestParseNewArgsRejectsBadInput(t *testing.T) {
+	for _, args := range [][]string{
+		nil,
+		{"x", "--ro", "/a"},
+		{"x", "--as", "n"},
+		{"x", "/a", "--unknown"},
+		{"x", ""},
+	} {
+		if _, _, _, err := parseNewArgs(args); err == nil {
+			t.Errorf("parseNewArgs(%q) succeeded, want an error", args)
+		}
+	}
+}
+
+func TestNewFromParsedArgsWritesNamesAndModes(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	repo := t.TempDir()
+	view, members, mount, err := parseNewArgs([]string{"surfaces", repo, "--as", "backend", "--ro"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := newView(view, members, mount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := loadViewFile(path)
+	if err != nil || len(v.Members) != 1 || v.Members[0].Name != "backend" || !v.Members[0].ReadOnly {
+		t.Errorf("view = %+v, %v", v, err)
 	}
 }

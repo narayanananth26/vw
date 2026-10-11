@@ -48,7 +48,7 @@ func (self *memberFlag) Set(path string) error {
 // last is the member given by the closest --member so far.
 func (self *memberFlag) last() (*core.Member, error) {
 	if len(*self) == 0 {
-		return nil, errors.New("must come after a --member")
+		return nil, errors.New("must come after a member")
 	}
 	return &(*self)[len(*self)-1], nil
 }
