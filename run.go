@@ -203,19 +203,18 @@ func runCmd(args []string) {
 	os.Exit(code)
 }
 
-func userShell() string {
-	if shell := os.Getenv("SHELL"); shell != "" {
-		return shell
-	}
-	return "/bin/sh"
-}
-
 func shellCmd(args []string) {
 	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
-	code, e := runView(args[0], []string{userShell()})
+
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
+	code, e := runView(args[0], []string{shell})
 	if e != nil {
 		fatal(e)
 	}
