@@ -168,8 +168,9 @@ func memberPath(arg, file, p string) (string, error) {
 	return member, nil
 }
 
-// newView writes a view file with one member per path and returns where it went.
-func newView(arg string, paths []string) (string, error) {
+// newView writes a view file with the given members and mount point, and returns where it went. An
+// empty mount leaves the default.
+func newView(arg string, members []core.Member, mount string) (string, error) {
 	path, e := resolveView(arg)
 	if e != nil {
 		return "", e
@@ -179,12 +180,21 @@ func newView(arg string, paths []string) (string, error) {
 		return "", e
 	}
 	var f viewFile
-	for _, p := range paths {
-		member, e := memberPath(arg, file, p)
+	if mount != "" {
+		if f.Mount, e = memberPath(arg, file, mount); e != nil {
+			return "", e
+		}
+	}
+	for _, m := range members {
+		p, e := memberPath(arg, file, m.Path)
 		if e != nil {
 			return "", e
 		}
-		f.Member = append(f.Member, viewMemberFile{Path: member})
+		entry := viewMemberFile{Path: p, Ro: m.ReadOnly}
+		if m.Name != filepath.Base(m.Path) {
+			entry.As = m.Name
+		}
+		f.Member = append(f.Member, entry)
 	}
 	data, e := toml.Marshal(f)
 	if e != nil {
@@ -212,7 +222,11 @@ func newCmd(args []string) {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
-	path, e := newView(args[0], args[1:])
+	var members []core.Member
+	for _, p := range args[1:] {
+		members = append(members, core.Member{Name: filepath.Base(p), Path: p})
+	}
+	path, e := newView(args[0], members, "")
 	if e != nil {
 		fatal(e)
 	}

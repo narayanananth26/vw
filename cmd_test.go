@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"vw/core"
 )
 
 func TestListViewsShowsCentralViewNames(t *testing.T) {
@@ -90,11 +92,19 @@ func TestEditViewRefusesAMissingViewAndAFailingEditor(t *testing.T) {
 	}
 }
 
+func pathMembers(paths ...string) []core.Member {
+	var members []core.Member
+	for _, p := range paths {
+		members = append(members, core.Member{Name: filepath.Base(p), Path: p})
+	}
+	return members
+}
+
 func TestNewViewWritesACentralViewWithAbsolutePaths(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", config)
 	repo := t.TempDir()
-	path, err := newView("surfaces", []string{repo, "relative/dir"})
+	path, err := newView("surfaces", pathMembers(repo, "relative/dir"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +124,7 @@ func TestNewViewWritesACentralViewWithAbsolutePaths(t *testing.T) {
 func TestNewViewWritesALocalViewWithRelativePaths(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repos", "api")
-	path, err := newView(filepath.Join(dir, "team.view"), []string{repo})
+	path, err := newView(filepath.Join(dir, "team.view"), pathMembers(repo), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,8 +141,47 @@ func TestNewViewWritesALocalViewWithRelativePaths(t *testing.T) {
 	}
 }
 
+func TestNewViewRecordsNamesModesAndMount(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	repo, mount := t.TempDir(), t.TempDir()
+	path, err := newView("surfaces", []core.Member{{Name: "backend", Path: repo, ReadOnly: true}}, mount)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := loadViewFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Mount != mount || len(v.Members) != 1 || v.Members[0].Name != "backend" || !v.Members[0].ReadOnly {
+		t.Errorf("view = %+v", v)
+	}
+}
+
+func TestNewViewRecordsALocalMountRelativeToTheFile(t *testing.T) {
+	dir := t.TempDir()
+	path, err := newView(filepath.Join(dir, "team.view"), nil, filepath.Join(dir, "out", "x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(path); !strings.Contains(string(data), "mount = 'out/x'") {
+		t.Errorf("file = %q, want a mount relative to the view file", data)
+	}
+}
+
+func TestNewViewOmitsTheDefaultNameAndMode(t *testing.T) {
+	path, err := newView(filepath.Join(t.TempDir(), "x.view"), pathMembers("/a/api"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "as =") || strings.Contains(string(data), "ro =") || strings.Contains(string(data), "mount =") {
+		t.Errorf("file = %q, want only the path", data)
+	}
+}
+
 func TestNewViewWithoutPathsWritesAnEmptyView(t *testing.T) {
-	path, err := newView(filepath.Join(t.TempDir(), "empty.view"), nil)
+	path, err := newView(filepath.Join(t.TempDir(), "empty.view"), nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +192,7 @@ func TestNewViewWithoutPathsWritesAnEmptyView(t *testing.T) {
 
 func TestNewViewRefusesToOverwrite(t *testing.T) {
 	path := writeViewFile(t, t.TempDir(), "x.view", "# mine\n")
-	if _, err := newView(path, nil); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if _, err := newView(path, nil, ""); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("error = %v, want one saying the file already exists", err)
 	}
 	if data, _ := os.ReadFile(path); string(data) != "# mine\n" {
@@ -155,7 +204,7 @@ func TestAddMemberRecordsAnAbsolutePathForACentralView(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", config)
 	repo := t.TempDir()
-	if _, err := newView("surfaces", nil); err != nil {
+	if _, err := newView("surfaces", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := addMember("surfaces", repo, "", false, io.Discard); err != nil {
