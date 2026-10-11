@@ -14,6 +14,9 @@ import (
 )
 
 func trace(vals ...any) func(vals ...any) {
+	if shared.TracePattern == "" {
+		return func(...any) {}
+	}
 	uid, gid, _ := fuse.Getcontext()
 	return shared.Trace(1, fmt.Sprintf("[uid=%v,gid=%v]", uid, gid), vals...)
 }
