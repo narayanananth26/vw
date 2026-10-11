@@ -291,3 +291,30 @@ func TestReadyFileIgnoresStandardStreams(t *testing.T) {
 		}
 	}
 }
+
+func TestMountFlagsBindNameAndModeToTheClosestMember(t *testing.T) {
+	mount, err := parseMountFlags([]string{
+		"--member", "/a", "--as", "api", "--ro",
+		"--member", "/b",
+		"--member", "/c", "--ro=false",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := memberFlag{
+		{Name: "api", Path: "/a", ReadOnly: true},
+		{Name: "b", Path: "/b"},
+		{Name: "c", Path: "/c"},
+	}
+	if !reflect.DeepEqual(want, mount.members) {
+		t.Errorf("members = %+v, want %+v", mount.members, want)
+	}
+}
+
+func TestMountFlagsRejectMemberOptionsWithoutMember(t *testing.T) {
+	for _, args := range [][]string{{"--as", "x"}, {"--ro"}} {
+		if _, err := parseMountFlags(append(args, "--member", "/a")); err == nil {
+			t.Errorf("%v before any --member was accepted", args)
+		}
+	}
+}

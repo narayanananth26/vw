@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -45,6 +46,14 @@ func (self *memberFlag) Set(spec string) error {
 	return nil
 }
 
+// last is the member given by the closest --member so far.
+func (self *memberFlag) last() (*core.Member, error) {
+	if len(*self) == 0 {
+		return nil, errors.New("must come after a --member")
+	}
+	return &(*self)[len(*self)-1], nil
+}
+
 // memberFilterFlag adds a pattern to the member given by the closest --member before it.
 type memberFilterFlag struct {
 	members *memberFlag
@@ -56,16 +65,56 @@ func (self *memberFilterFlag) String() string {
 }
 
 func (self *memberFilterFlag) Set(pattern string) error {
-	if len(*self.members) == 0 {
-		return errors.New("must come after a --member")
+	m, e := self.members.last()
+	if e != nil {
+		return e
 	}
-	m := &(*self.members)[len(*self.members)-1]
 	if self.exclude {
 		m.Exclude = append(m.Exclude, pattern)
 	} else {
 		m.Include = append(m.Include, pattern)
 	}
 	return nil
+}
+
+// memberAsFlag names the member given by the closest --member before it.
+type memberAsFlag struct {
+	members *memberFlag
+}
+
+func (self *memberAsFlag) String() string {
+	return ""
+}
+
+func (self *memberAsFlag) Set(name string) error {
+	m, e := self.members.last()
+	if e != nil {
+		return e
+	}
+	m.Name = name
+	return nil
+}
+
+// memberRoFlag makes the member given by the closest --member before it read-only.
+type memberRoFlag struct {
+	members *memberFlag
+}
+
+func (self *memberRoFlag) String() string {
+	return ""
+}
+
+func (self *memberRoFlag) IsBoolFlag() bool {
+	return true
+}
+
+func (self *memberRoFlag) Set(value string) error {
+	m, e := self.members.last()
+	if e != nil {
+		return e
+	}
+	m.ReadOnly, e = strconv.ParseBool(value)
+	return e
 }
 
 type mountFlags struct {
@@ -81,6 +130,8 @@ func (self *mountFlags) register(set *flag.FlagSet) {
 	set.Var(&self.members, "member", "folder to show, as path[:name[:ro]]; repeat for more")
 	set.StringVar(&self.scratch, "scratch", "", "folder holding files created at the view root; default ~/.local/share/vw/views/<mountpoint name>/root")
 	set.IntVar(&self.readyFD, "ready-fd", 0, "internal: file descriptor to write one byte to once the view is mounted")
+	set.Var(&memberAsFlag{members: &self.members}, "as", "name the closest --member before it, instead of its folder's name")
+	set.Var(&memberRoFlag{members: &self.members}, "ro", "refuse writes to the closest --member before it")
 	set.Var(&memberFilterFlag{members: &self.members}, "member-include", "like --include, for the closest --member before it")
 	set.Var(&memberFilterFlag{members: &self.members, exclude: true}, "member-exclude", "like --exclude, for the closest --member before it")
 }
@@ -188,7 +239,7 @@ func checkMountPoint(path string) error {
 
 const mountUsage = "usage: vw mount <view|file> [--scratch dir] [fuse opts...]\n" +
 	"       vw mount [--include pattern]... [--exclude pattern]... [--scratch dir]\n" +
-	"           --member path[:name[:ro]] [--member-include pattern]... [--member-exclude pattern]... ...\n" +
+	"           --member path [--as name] [--ro] [--member-include pattern]... [--member-exclude pattern]... ...\n" +
 	"           <mountpoint> [fuse opts...]"
 
 type mountSpec struct {
