@@ -29,17 +29,18 @@ const usage = "usage: vw <command>\n" +
 	"  new <view> [path [--as name] [--ro]]... [--mount path]   create a view; a name goes in the central directory, a file path stays where it is\n" +
 	"  add <view> <path> [--as name] [--ro]   add a member to a view\n" +
 	"  rm <view> <member>   remove a member from a view\n" +
+	"  status [<view|file>...] [--json]   show whether views are mounted and in use\n" +
 	"  unmount <view>   unmount a view unless a run or shell is using it"
 
-// listViews prints the name of every central view, or a JSON array of their names and files.
-func listViews(w io.Writer, asJSON bool) error {
+// centralViews returns the central views directory and the sorted names of the views in it.
+func centralViews() (string, []string, error) {
 	dir, e := viewsDir()
 	if e != nil {
-		return e
+		return "", nil, e
 	}
 	entries, e := os.ReadDir(dir)
 	if e != nil && !errors.Is(e, os.ErrNotExist) {
-		return e
+		return "", nil, e
 	}
 	var names []string
 	for _, entry := range entries {
@@ -48,6 +49,15 @@ func listViews(w io.Writer, asJSON bool) error {
 		}
 	}
 	slices.Sort(names)
+	return dir, names, nil
+}
+
+// listViews prints the name of every central view, or a JSON array of their names and files.
+func listViews(w io.Writer, asJSON bool) error {
+	dir, names, e := centralViews()
+	if e != nil {
+		return e
+	}
 	if asJSON {
 		type entry struct {
 			Name string `json:"name"`
@@ -407,6 +417,91 @@ func rmCmd(args []string) {
 		os.Exit(2)
 	}
 	if e := removeMember(args[0], args[1], os.Stderr); e != nil {
+		fatal(e)
+	}
+}
+
+type viewStatus struct {
+	Name     string `json:"name"`
+	File     string `json:"file"`
+	Mount    string `json:"mount"`
+	Mounted  bool   `json:"mounted"`
+	Sessions bool   `json:"sessions"`
+}
+
+// statusOf reports where a view lives, whether it is mounted, and whether a run or shell is using it.
+func statusOf(arg string) (viewStatus, error) {
+	v, e := openView(arg)
+	if e != nil {
+		return viewStatus{}, e
+	}
+	file, e := filepath.Abs(v.Path)
+	if e != nil {
+		return viewStatus{}, e
+	}
+	dir, e := viewDataDir(v)
+	if e != nil {
+		return viewStatus{}, e
+	}
+	mounted, e := isMounted(v.Mount)
+	if e != nil {
+		return viewStatus{}, e
+	}
+	sessions, e := sessionsActive(filepath.Join(dir, "session.lock"))
+	if e != nil {
+		return viewStatus{}, e
+	}
+	return viewStatus{v.Name, file, filepath.Clean(v.Mount), mounted, sessions}, nil
+}
+
+// printStatus prints the status of the given views, or of every central view when none is given.
+func printStatus(w io.Writer, args []string, asJSON bool) error {
+	if len(args) == 0 {
+		_, names, e := centralViews()
+		if e != nil {
+			return e
+		}
+		args = names
+	}
+	list := []viewStatus{}
+	for _, arg := range args {
+		s, e := statusOf(arg)
+		if e != nil {
+			return e
+		}
+		list = append(list, s)
+	}
+	if asJSON {
+		return writeJSON(w, list)
+	}
+	table := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	for _, s := range list {
+		state := "unmounted"
+		if s.Mounted {
+			state = "mounted"
+		}
+		if s.Sessions {
+			state += " in-use"
+		}
+		fmt.Fprintf(table, "%s\t%s\t%s\n", s.Name, state, s.Mount)
+	}
+	return table.Flush()
+}
+
+// statusCmd takes --json before or after the views.
+func statusCmd(args []string) {
+	set := flag.NewFlagSet("status", flag.ExitOnError)
+	asJSON := set.Bool("json", false, "print JSON")
+	var positional []string
+	for {
+		set.Parse(args)
+		if set.NArg() == 0 {
+			break
+		}
+		positional = append(positional, set.Arg(0))
+		args = set.Args()[1:]
+	}
+	if e := printStatus(os.Stdout, positional, *asJSON); e != nil {
 		fatal(e)
 	}
 }

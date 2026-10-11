@@ -486,3 +486,58 @@ func TestNewFromParsedArgsWritesNamesAndModes(t *testing.T) {
 		t.Errorf("view = %+v, %v", v, err)
 	}
 }
+
+func TestPrintStatusJSONReportsMountAndSessions(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	mounted := writeViewFile(t, dir, "up.view", "mount = \"/dev\"\n")
+	idle := writeViewFile(t, dir, "idle.view", "mount = \""+filepath.Join(dir, "idle")+"\"\n")
+	v, _ := openView(mounted)
+	data, _ := viewDataDir(v)
+	s := mustJoin(t, filepath.Join(data, "session.lock"))
+	defer s.close()
+	var out bytes.Buffer
+	if err := printStatus(&out, []string{mounted, idle}, true); err != nil {
+		t.Fatal(err)
+	}
+	var got []viewStatus
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []viewStatus{
+		{"up", mounted, "/dev", true, true},
+		{"idle", idle, filepath.Join(dir, "idle"), false, false},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("status = %+v, want %+v", got, want)
+	}
+}
+
+func TestPrintStatusWithoutArgsCoversCentralViews(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("HOME", t.TempDir())
+	var out bytes.Buffer
+	if err := printStatus(&out, nil, true); err != nil || strings.TrimSpace(out.String()) != "[]" {
+		t.Fatalf("no views: status = %q, %v, want []", out.String(), err)
+	}
+	views := filepath.Join(config, "vw", "views")
+	if err := os.MkdirAll(views, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeViewFile(t, views, "a.toml", "mount = \""+filepath.Join(config, "a")+"\"\n")
+	out.Reset()
+	if err := printStatus(&out, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if f := strings.Fields(out.String()); len(f) != 3 || f[0] != "a" || f[1] != "unmounted" {
+		t.Errorf("status text = %q", out.String())
+	}
+}
+
+func TestPrintStatusFailsOnAnUnknownView(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := printStatus(&bytes.Buffer{}, []string{"nope"}, false); err == nil {
+		t.Error("printStatus succeeded for a view that does not exist")
+	}
+}
