@@ -475,3 +475,28 @@ func TestSidecarDirSitsNextToScratch(t *testing.T) {
 		t.Errorf("sidecarDir = %q, want %q", got, want)
 	}
 }
+
+func TestOpendirChecksTheDirectoryWithoutHoldingADescriptor(t *testing.T) {
+	fs, real, _ := newSidecarFS(t)
+	if err := os.WriteFile(filepath.Join(real, "f.txt"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		path string
+		want int
+	}{
+		{"/", 0},
+		{"/gw", 0},
+		{"/gw/missing", -fuse.ENOENT},
+		{"/gw/f.txt", -fuse.ENOTDIR},
+	}
+	for _, tt := range tests {
+		errc, fh := fs.Opendir(tt.path)
+		if errc != tt.want {
+			t.Errorf("Opendir(%q) = %d, want %d", tt.path, errc, tt.want)
+		}
+		if errc == 0 && fs.Releasedir(tt.path, fh) != 0 {
+			t.Errorf("Releasedir(%q) failed", tt.path)
+		}
+	}
+}

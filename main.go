@@ -349,11 +349,14 @@ func (self *viewFS) Opendir(path string) (errc int, fh uint64) {
 	if errc != 0 {
 		return errc, ^uint64(0)
 	}
-	f, e := syscall.Open(path, syscall.O_RDONLY|syscall.O_DIRECTORY, 0)
-	if e != nil {
+	var st syscall.Stat_t
+	if e := syscall.Stat(path, &st); e != nil {
 		return errno(e), ^uint64(0)
 	}
-	return 0, uint64(f)
+	if st.Mode&syscall.S_IFMT != syscall.S_IFDIR {
+		return -fuse.ENOTDIR, ^uint64(0)
+	}
+	return 0, ^uint64(0)
 }
 
 func (self *viewFS) Readdir(path string,
@@ -416,10 +419,7 @@ func listDir(path string) ([]os.DirEntry, error) {
 
 func (self *viewFS) Releasedir(path string, fh uint64) (errc int) {
 	defer trace(path, fh)(&errc)
-	if fh == ^uint64(0) {
-		return 0
-	}
-	return errno(syscall.Close(int(fh)))
+	return 0
 }
 
 func fatal(err error) {
