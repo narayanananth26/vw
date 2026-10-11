@@ -37,12 +37,11 @@ func (self *memberFlag) String() string {
 	return strings.Join(paths, " ")
 }
 
-func (self *memberFlag) Set(spec string) error {
-	m, e := core.ParseMember(spec)
-	if e != nil {
-		return e
+func (self *memberFlag) Set(path string) error {
+	if path == "" {
+		return errors.New("member has an empty path")
 	}
-	*self = append(*self, m)
+	*self = append(*self, core.Member{Name: filepath.Base(path), Path: path})
 	return nil
 }
 
@@ -127,7 +126,7 @@ type mountFlags struct {
 func (self *mountFlags) register(set *flag.FlagSet) {
 	set.Var(&self.include, "include", "show only paths matching this gitignore pattern in the whole view; repeat for more")
 	set.Var(&self.exclude, "exclude", "hide paths matching this gitignore pattern in the whole view; repeat for more")
-	set.Var(&self.members, "member", "folder to show, as path[:name[:ro]]; repeat for more")
+	set.Var(&self.members, "member", "folder to show; repeat for more")
 	set.StringVar(&self.scratch, "scratch", "", "folder holding files created at the view root; default ~/.local/share/vw/views/<mountpoint name>/root")
 	set.IntVar(&self.readyFD, "ready-fd", 0, "internal: file descriptor to write one byte to once the view is mounted")
 	set.Var(&memberAsFlag{members: &self.members}, "as", "name the closest --member before it, instead of its folder's name")

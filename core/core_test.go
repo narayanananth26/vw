@@ -2,42 +2,10 @@ package core
 
 import (
 	"errors"
-	"reflect"
 	"slices"
 	"syscall"
 	"testing"
 )
-
-func TestParseMember(t *testing.T) {
-	tests := []struct {
-		spec string
-		want Member
-	}{
-		{"/home/a", Member{Name: "a", Path: "/home/a"}},
-		{"/home/a/", Member{Name: "a", Path: "/home/a/"}},
-		{"/home/b:api", Member{Name: "api", Path: "/home/b"}},
-		{"/home/b:api:ro", Member{Name: "api", Path: "/home/b", ReadOnly: true}},
-		{"/home/b::ro", Member{Name: "b", Path: "/home/b", ReadOnly: true}},
-	}
-	for _, tt := range tests {
-		got, err := ParseMember(tt.spec)
-		if err != nil {
-			t.Errorf("ParseMember(%q) error: %v", tt.spec, err)
-			continue
-		}
-		if !reflect.DeepEqual(tt.want, got) {
-			t.Errorf("ParseMember(%q) = %+v, want %+v", tt.spec, got, tt.want)
-		}
-	}
-}
-
-func TestParseMemberErrors(t *testing.T) {
-	for _, spec := range []string{"", ":api", "/home/a:x:rw", "/home/a:x:ro:extra"} {
-		if _, err := ParseMember(spec); err == nil {
-			t.Errorf("ParseMember(%q) succeeded, want an error", spec)
-		}
-	}
-}
 
 func TestNew(t *testing.T) {
 	view, err := New([]Member{
@@ -109,11 +77,7 @@ func TestNewRejectsInvalidNames(t *testing.T) {
 }
 
 func TestNewRejectsDotPathWithoutName(t *testing.T) {
-	m, err := ParseMember(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := New([]Member{m}); err == nil {
+	if _, err := New([]Member{{Name: ".", Path: "."}}); err == nil {
 		t.Error("New accepted a member named after the path .")
 	}
 }

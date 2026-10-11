@@ -27,7 +27,7 @@ func TestMountFlagsBindFiltersToTheClosestMember(t *testing.T) {
 	mount, err := parseMountFlags([]string{
 		"--exclude", "node_modules/", "--include", "/api/",
 		"--member", "/a", "--member-exclude", "*.snap", "--member-include", "/src/",
-		"--member", "/b:web:ro", "--member-exclude", "dist/",
+		"--member", "/b", "--as", "web", "--ro", "--member-exclude", "dist/",
 		"--member-exclude", "*.log",
 	})
 	if err != nil {
@@ -53,12 +53,6 @@ func TestMountFlagsRejectMemberFilterWithoutMember(t *testing.T) {
 		if _, err := parseMountFlags([]string{flagName, "x/", "--member", "/a"}); err == nil {
 			t.Errorf("%s before any --member was accepted", flagName)
 		}
-	}
-}
-
-func TestMountFlagsRejectBadMemberSpec(t *testing.T) {
-	if _, err := parseMountFlags([]string{"--member", "/a:b:rw"}); err == nil {
-		t.Error("a member spec with an unknown option was accepted")
 	}
 }
 

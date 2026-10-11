@@ -19,7 +19,7 @@ import (
 
 const usage = "usage: vw <command>\n" +
 	"  mount <view|file> [--scratch dir] [fuse opts...]\n" +
-	"  mount --member path[:name[:ro]]... <mountpoint> [fuse opts...]   see vw mount for all flags\n" +
+	"  mount --member path [--as name] [--ro]... <mountpoint> [fuse opts...]   see vw mount for all flags\n" +
 	"  list [<view>]     list views, or one view's members\n" +
 	"  path <view>     print a view's mount point\n" +
 	"  edit <view>     open a view file in $EDITOR\n" +

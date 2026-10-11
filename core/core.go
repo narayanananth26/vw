@@ -69,31 +69,6 @@ func WithExclude(patterns ...string) Option {
 	}
 }
 
-// ParseMember reads path[:name[:ro]]. An empty name defaults to the last element of path.
-func ParseMember(spec string) (Member, error) {
-	fields := strings.Split(spec, ":")
-	if len(fields) > 3 {
-		return Member{}, fmt.Errorf("member %q has too many fields, want path[:name[:ro]]", spec)
-	}
-	m := Member{Path: fields[0]}
-	if m.Path == "" {
-		return Member{}, fmt.Errorf("member %q has an empty path", spec)
-	}
-	if len(fields) > 1 {
-		m.Name = fields[1]
-	}
-	if m.Name == "" {
-		m.Name = filepath.Base(m.Path)
-	}
-	if len(fields) > 2 {
-		if fields[2] != "ro" {
-			return Member{}, fmt.Errorf("member %q has unknown option %q, want ro", spec, fields[2])
-		}
-		m.ReadOnly = true
-	}
-	return m, nil
-}
-
 // New builds a view, rejecting member names that are unusable or used twice.
 func New(members []Member, opts ...Option) (*View, error) {
 	view := &View{
