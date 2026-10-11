@@ -286,3 +286,104 @@ func TestRootEntries(t *testing.T) {
 		t.Errorf("RootEntries() = %v, want %v", got, want)
 	}
 }
+
+func newSidecarView(t *testing.T) *View {
+	t.Helper()
+	view, err := New([]Member{
+		{Name: "docs", Path: "/home/notes"},
+		{Name: "api", Path: "/home/b", ReadOnly: true},
+	}, WithSidecars("/sidecars"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return view
+}
+
+func TestResolveSidecar(t *testing.T) {
+	view := newSidecarView(t)
+	tests := []struct {
+		path string
+		want Resolved
+	}{
+		{"/docs/._a.txt", Resolved{Kind: InMember, Real: "/sidecars/docs/._a.txt"}},
+		{"/docs/sub/._a.txt", Resolved{Kind: InMember, Real: "/sidecars/docs/sub/._a.txt"}},
+		{"/docs/.git/._index", Resolved{Kind: InMember, Real: "/sidecars/docs/.git/._index"}},
+		{"/api/._a.txt", Resolved{Kind: InMember, Real: "/sidecars/api/._a.txt", ReadOnly: true}},
+		{"/docs/a.txt", Resolved{Kind: InMember, Real: "/home/notes/a.txt"}},
+		{"/docs/a._b", Resolved{Kind: InMember, Real: "/home/notes/a._b"}},
+		{"/docs/._d/a.txt", Resolved{Kind: InMember, Real: "/home/notes/._d/a.txt"}},
+		{"/docs", Resolved{Kind: InMember, Real: "/home/notes", MemberRoot: true}},
+		{"/nope/._a", Resolved{Kind: NotFound}},
+	}
+	for _, tt := range tests {
+		if got := view.Resolve(tt.path); tt.want != got {
+			t.Errorf("Resolve(%q) = %+v, want %+v", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestResolveLeavesSidecarNamesAloneByDefault(t *testing.T) {
+	want := Resolved{Kind: InMember, Real: "/home/notes/._a.txt"}
+	if got := newTestView(t).Resolve("/docs/._a.txt"); want != got {
+		t.Errorf("Resolve = %+v, want %+v", got, want)
+	}
+}
+
+func TestIsSidecar(t *testing.T) {
+	view := newSidecarView(t)
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"/docs/._a.txt", true},
+		{"/docs/sub/._a.txt", true},
+		{"/api/._a.txt", true},
+		{"/docs/a.txt", false},
+		{"/docs/._d/a.txt", false},
+		{"/docs", false},
+		{"/._a", false},
+		{"/nope/._a", false},
+	}
+	for _, tt := range tests {
+		if got := view.IsSidecar(tt.path); tt.want != got {
+			t.Errorf("IsSidecar(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+	if newTestView(t).IsSidecar("/docs/._a.txt") {
+		t.Error("IsSidecar is true without WithSidecars")
+	}
+}
+
+func TestResolveWriteAndRemoveSidecar(t *testing.T) {
+	view := newSidecarView(t)
+	if real, err := view.ResolveWrite("/docs/._a"); real != "/sidecars/docs/._a" || err != nil {
+		t.Errorf("ResolveWrite = %q, %v", real, err)
+	}
+	if real, err := view.ResolveRemove("/docs/._a"); real != "/sidecars/docs/._a" || err != nil {
+		t.Errorf("ResolveRemove = %q, %v", real, err)
+	}
+	if real, err := view.ResolveWrite("/api/._a"); real != "" || !errors.Is(err, syscall.EROFS) {
+		t.Errorf("ResolveWrite on a read-only member = %q, %v, want EROFS", real, err)
+	}
+}
+
+func TestResolvePairSidecar(t *testing.T) {
+	view := newSidecarView(t)
+	tests := []struct {
+		old, new         string
+		oldReal, newReal string
+		err              error
+	}{
+		{"/docs/._a", "/docs/._b", "/sidecars/docs/._a", "/sidecars/docs/._b", nil},
+		{"/docs/a", "/docs/._a", "/home/notes/a", "/sidecars/docs/._a", nil},
+		{"/docs/._a", "/api/._a", "", "", syscall.EXDEV},
+		{"/api/._a", "/api/._b", "", "", syscall.EROFS},
+	}
+	for _, tt := range tests {
+		oldReal, newReal, err := view.ResolvePair(tt.old, tt.new)
+		if tt.oldReal != oldReal || tt.newReal != newReal || !errors.Is(err, tt.err) {
+			t.Errorf("ResolvePair(%q, %q) = %q, %q, %v, want %q, %q, %v",
+				tt.old, tt.new, oldReal, newReal, err, tt.oldReal, tt.newReal, tt.err)
+		}
+	}
+}

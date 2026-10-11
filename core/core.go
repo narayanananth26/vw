@@ -44,6 +44,7 @@ type View struct {
 	memberInclude map[string]includeSet
 	memberExclude map[string]gitignore.Matcher
 	scratch       string
+	sidecars      string
 }
 
 type Option func(*View)
@@ -52,6 +53,13 @@ type Option func(*View)
 func WithScratch(dir string) Option {
 	return func(view *View) {
 		view.scratch = dir
+	}
+}
+
+// WithSidecars resolves member paths named ._* to paths under dir, one subdirectory per member.
+func WithSidecars(dir string) Option {
+	return func(view *View) {
+		view.sidecars = dir
 	}
 }
 
@@ -119,12 +127,24 @@ func (self *View) Resolve(viewPath string) Resolved {
 		}
 		return Resolved{Kind: Scratch, Real: filepath.Join(self.scratch, name, rest)}
 	}
+	real := filepath.Join(m.Path, rest)
+	if self.IsSidecar(viewPath) {
+		real = filepath.Join(self.sidecars, name, rest)
+	}
 	return Resolved{
 		Kind:       InMember,
-		Real:       filepath.Join(m.Path, rest),
+		Real:       real,
 		ReadOnly:   m.ReadOnly,
 		MemberRoot: rest == "",
 	}
+}
+
+// IsSidecar reports whether viewPath names a ._* entry inside a member while sidecars are on. Resolve
+// maps such a path under the sidecar directory.
+func (self *View) IsSidecar(viewPath string) bool {
+	name, rest := split(viewPath)
+	_, isMember := self.members[name]
+	return isMember && self.sidecars != "" && rest != "" && strings.HasPrefix(path.Base(rest), "._")
 }
 
 // RootEntries merges scratchNames into the member names, sorted. A member hides a scratch entry
