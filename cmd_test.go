@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -23,7 +24,7 @@ func TestListViewsShowsCentralViewNames(t *testing.T) {
 		writeViewFile(t, dir, name, "")
 	}
 	var out bytes.Buffer
-	if err := listViews(&out); err != nil {
+	if err := listViews(&out, false); err != nil {
 		t.Fatal(err)
 	}
 	if want := "api\nsurfaces\n"; out.String() != want {
@@ -34,7 +35,7 @@ func TestListViewsShowsCentralViewNames(t *testing.T) {
 func TestListViewsWithoutAConfigDirectory(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	var out bytes.Buffer
-	if err := listViews(&out); err != nil || out.Len() != 0 {
+	if err := listViews(&out, false); err != nil || out.Len() != 0 {
 		t.Errorf("listViews = %q, %v, want no output and no error", out.String(), err)
 	}
 }
@@ -45,7 +46,7 @@ func TestListMembersMarksReadOnlyAndMissing(t *testing.T) {
 		"[[member]]\npath = \""+dir+"\"\nas = \"here\"\nro = true\n"+
 		"[[member]]\npath = \""+filepath.Join(dir, "gone")+"\"\n")
 	var out bytes.Buffer
-	if err := listMembers(&out, path); err != nil {
+	if err := listMembers(&out, path, false); err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
@@ -57,6 +58,62 @@ func TestListMembersMarksReadOnlyAndMissing(t *testing.T) {
 	}
 	if f := strings.Fields(lines[2]); len(f) != 3 || f[0] != "gone" || f[2] != "missing" {
 		t.Errorf("second member line = %q", lines[2])
+	}
+}
+
+func TestListViewsJSONGivesNamesAndFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	var out bytes.Buffer
+	if err := listViews(&out, true); err != nil || strings.TrimSpace(out.String()) != "[]" {
+		t.Fatalf("empty listViews = %q, %v, want []", out.String(), err)
+	}
+	views := filepath.Join(home, "vw", "views")
+	if err := os.MkdirAll(views, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeViewFile(t, views, "b.toml", "")
+	out.Reset()
+	if err := listViews(&out, true); err != nil {
+		t.Fatal(err)
+	}
+	var got []struct{ Name, File string }
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(views, "b.toml")
+	if len(got) != 1 || got[0].Name != "b" || got[0].File != want {
+		t.Errorf("listViews json = %+v, want b at %s", got, want)
+	}
+}
+
+func TestListMembersJSONMarksReadOnlyAndMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := writeViewFile(t, dir, "x.view", "mount = \"/mnt/x\"\n"+
+		"[[member]]\npath = \""+dir+"\"\nas = \"here\"\nro = true\n"+
+		"[[member]]\npath = \""+filepath.Join(dir, "gone")+"\"\n")
+	var out bytes.Buffer
+	if err := listMembers(&out, path, true); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Mount   string
+		Members []struct {
+			Name, Path  string
+			Ro, Missing bool
+		}
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Mount != "/mnt/x" || len(got.Members) != 2 {
+		t.Fatalf("listMembers json = %+v", got)
+	}
+	if m := got.Members[0]; m.Name != "here" || m.Path != dir || !m.Ro || m.Missing {
+		t.Errorf("first member = %+v", m)
+	}
+	if m := got.Members[1]; m.Name != "gone" || m.Ro || !m.Missing {
+		t.Errorf("second member = %+v", m)
 	}
 }
 

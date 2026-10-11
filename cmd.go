@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,7 +21,7 @@ import (
 const usage = "usage: vw <command>\n" +
 	"  mount <view|file> [--scratch dir] [fuse opts...]\n" +
 	"  mount --member path [--as name] [--ro]... <mountpoint> [fuse opts...]   see vw mount for all flags\n" +
-	"  list [<view>]     list views, or one view's members\n" +
+	"  list [<view>] [--json]   list views, or one view's members\n" +
 	"  path <view>     print a view's mount point\n" +
 	"  edit <view>     open a view file in $EDITOR\n" +
 	"  run <view> [--] <command> [args...]   run a command inside a view, mounting it if needed\n" +
@@ -29,17 +30,14 @@ const usage = "usage: vw <command>\n" +
 	"  add <view> <path> [--as name] [--ro]   add a member to a view\n" +
 	"  rm <view> <member>   remove a member from a view"
 
-// listViews prints the name of every central view.
-func listViews(w io.Writer) error {
+// listViews prints the name of every central view, or a JSON array of their names and files.
+func listViews(w io.Writer, asJSON bool) error {
 	dir, e := viewsDir()
 	if e != nil {
 		return e
 	}
 	entries, e := os.ReadDir(dir)
-	if errors.Is(e, os.ErrNotExist) {
-		return nil
-	}
-	if e != nil {
+	if e != nil && !errors.Is(e, os.ErrNotExist) {
 		return e
 	}
 	var names []string
@@ -49,17 +47,51 @@ func listViews(w io.Writer) error {
 		}
 	}
 	slices.Sort(names)
+	if asJSON {
+		type entry struct {
+			Name string `json:"name"`
+			File string `json:"file"`
+		}
+		list := []entry{}
+		for _, name := range names {
+			list = append(list, entry{name, filepath.Join(dir, name+".toml")})
+		}
+		return writeJSON(w, list)
+	}
 	for _, name := range names {
 		fmt.Fprintln(w, name)
 	}
 	return nil
 }
 
-// listMembers prints the mount point of a view and then one line per member.
-func listMembers(w io.Writer, arg string) error {
+func writeJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
+// listMembers prints the mount point of a view and then one line per member, or the same as JSON.
+func listMembers(w io.Writer, arg string, asJSON bool) error {
 	v, e := openView(arg)
 	if e != nil {
 		return e
+	}
+	if asJSON {
+		type member struct {
+			Name    string `json:"name"`
+			Path    string `json:"path"`
+			Ro      bool   `json:"ro"`
+			Missing bool   `json:"missing"`
+		}
+		out := struct {
+			Mount   string   `json:"mount"`
+			Members []member `json:"members"`
+		}{Mount: v.Mount, Members: []member{}}
+		for _, m := range v.Members {
+			_, e := os.Stat(m.Path)
+			out.Members = append(out.Members, member{m.Name, m.Path, m.ReadOnly, e != nil})
+		}
+		return writeJSON(w, out)
 	}
 	fmt.Fprintf(w, "mount %s\n", v.Mount)
 	table := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
@@ -84,13 +116,25 @@ func openView(arg string) (*view, error) {
 	return loadViewFile(path)
 }
 
+// listCmd takes --json before or after the view.
 func listCmd(args []string) {
+	set := flag.NewFlagSet("list", flag.ExitOnError)
+	asJSON := set.Bool("json", false, "print JSON")
+	var positional []string
+	for {
+		set.Parse(args)
+		if set.NArg() == 0 {
+			break
+		}
+		positional = append(positional, set.Arg(0))
+		args = set.Args()[1:]
+	}
 	var e error
-	switch len(args) {
+	switch len(positional) {
 	case 0:
-		e = listViews(os.Stdout)
+		e = listViews(os.Stdout, *asJSON)
 	case 1:
-		e = listMembers(os.Stdout, args[0])
+		e = listMembers(os.Stdout, positional[0], *asJSON)
 	default:
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
