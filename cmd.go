@@ -13,6 +13,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"vw/core"
 )
 
 const usage = "usage: vw <command>\n" +
@@ -24,7 +26,8 @@ const usage = "usage: vw <command>\n" +
 	"  run <view> [--] <command> [args...]   run a command inside a view, mounting it if needed\n" +
 	"  shell <view>    open $SHELL inside a view, mounting it if needed\n" +
 	"  new <view> [path...]   create a view; a name goes in the central directory, a file path stays where it is\n" +
-	"  add <view> <path> [--as name] [--ro]   add a member to a view"
+	"  add <view> <path> [--as name] [--ro]   add a member to a view\n" +
+	"  rm <view> <member>   remove a member from a view"
 
 // listViews prints the name of every central view.
 func listViews(w io.Writer) error {
@@ -282,6 +285,43 @@ func addCmd(args []string) {
 		os.Exit(2)
 	}
 	if e := addMember(positional[0], positional[1], *as, *ro, os.Stderr); e != nil {
+		fatal(e)
+	}
+}
+
+// removeMember drops the member called name from a view file, and says to remount if the view is
+// mounted.
+func removeMember(arg, name string, notice io.Writer) error {
+	file, e := resolveView(arg)
+	if e != nil {
+		return e
+	}
+	f, e := readViewFile(file)
+	if e != nil {
+		return e
+	}
+	v, e := loadViewFile(file)
+	if e != nil {
+		return e
+	}
+	i := slices.IndexFunc(v.Members, func(m core.Member) bool { return m.Name == name })
+	if i < 0 {
+		return fmt.Errorf("%s has no member named %q", arg, name)
+	}
+	f.Member = slices.Delete(f.Member, i, i+1)
+	if e := saveViewFile(file, f); e != nil {
+		return e
+	}
+	noticeIfMounted(v, arg, notice)
+	return nil
+}
+
+func rmCmd(args []string) {
+	if len(args) != 2 {
+		fmt.Fprintln(os.Stderr, usage)
+		os.Exit(2)
+	}
+	if e := removeMember(args[0], args[1], os.Stderr); e != nil {
 		fatal(e)
 	}
 }

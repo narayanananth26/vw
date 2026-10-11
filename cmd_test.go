@@ -265,3 +265,62 @@ func TestAddMemberNotesAMountedView(t *testing.T) {
 		t.Errorf("notice = %q, want %q", notice.String(), want)
 	}
 }
+
+func TestRemoveMemberDropsTheNamedMember(t *testing.T) {
+	dir := t.TempDir()
+	path := writeViewFile(t, dir, "x.view", "mount = \"~/views/x\"\n"+
+		"[[member]]\npath = \""+dir+"\"\nas = \"alias\"\n"+
+		"[[member]]\npath = \"~/code/api\"\nexclude = [\"*.snap\"]\n"+
+		"[[member]]\npath = \""+dir+"\"\nas = \"other\"\n")
+	if err := removeMember(path, "alias", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeMember(path, "api", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := decodeViewFile(path, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Mount != "~/views/x" || len(f.Member) != 1 || f.Member[0].As != "other" {
+		t.Errorf("view file = %+v", f)
+	}
+}
+
+func TestRemoveMemberRefusesAnUnknownMember(t *testing.T) {
+	dir := t.TempDir()
+	path := writeViewFile(t, dir, "x.view", "[[member]]\npath = \""+dir+"\"\nas = \"a\"\n")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := removeMember(path, "b", io.Discard); err == nil {
+		t.Error("an unknown member was removed")
+	}
+	if err := removeMember(filepath.Join(dir, "gone.view"), "a", io.Discard); err == nil {
+		t.Error("a member was removed from a missing view")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("a refused remove changed the view file:\n%s", after)
+	}
+}
+
+func TestRemoveMemberNotesAMountedView(t *testing.T) {
+	dir := t.TempDir()
+	path := writeViewFile(t, dir, "mounted.view", "mount = \"/dev\"\n[[member]]\npath = \""+dir+"\"\nas = \"a\"\n")
+	var notice bytes.Buffer
+	if err := removeMember(path, "a", &notice); err != nil {
+		t.Fatal(err)
+	}
+	if want := path + " is mounted; remount to apply your changes\n"; notice.String() != want {
+		t.Errorf("notice = %q, want %q", notice.String(), want)
+	}
+}
