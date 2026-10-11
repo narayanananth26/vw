@@ -79,17 +79,22 @@ func decodeViewFile(path string, data []byte) (viewFile, error) {
 	return v, fmt.Errorf("%s: %w", path, e)
 }
 
+// readViewFile decodes a TOML view file without resolving its paths.
+func readViewFile(path string) (viewFile, error) {
+	data, e := os.ReadFile(path)
+	if e != nil {
+		return viewFile{}, e
+	}
+	return decodeViewFile(path, data)
+}
+
 // loadViewFile reads a TOML view file. Relative paths resolve against the file's directory.
 func loadViewFile(path string) (*view, error) {
 	abs, e := filepath.Abs(path)
 	if e != nil {
 		return nil, e
 	}
-	data, e := os.ReadFile(abs)
-	if e != nil {
-		return nil, e
-	}
-	f, e := decodeViewFile(path, data)
+	f, e := readViewFile(abs)
 	if e != nil {
 		return nil, e
 	}

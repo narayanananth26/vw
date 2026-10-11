@@ -150,3 +150,118 @@ func TestNewViewRefusesToOverwrite(t *testing.T) {
 		t.Errorf("existing file was changed to %q", data)
 	}
 }
+
+func TestAddMemberRecordsAnAbsolutePathForACentralView(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	repo := t.TempDir()
+	if _, err := newView("surfaces", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := addMember("surfaces", repo, "", false, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	v, err := loadViewFile(filepath.Join(config, "vw", "views", "surfaces.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Members) != 1 || v.Members[0].Path != repo || v.Members[0].Name != filepath.Base(repo) {
+		t.Errorf("members = %+v", v.Members)
+	}
+}
+
+func TestAddMemberRecordsARelativePathForALocalView(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repos", "api")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := writeViewFile(t, dir, "team.view", "")
+	if err := addMember(path, repo, "", false, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "path = 'repos/api'") {
+		t.Errorf("view file = %q, want the path relative to the file", data)
+	}
+}
+
+func TestAddMemberHonoursAsAndRo(t *testing.T) {
+	dir := t.TempDir()
+	path := writeViewFile(t, dir, "x.view", "")
+	if err := addMember(path, dir, "backend", true, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	v, err := loadViewFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Members) != 1 || v.Members[0].Name != "backend" || !v.Members[0].ReadOnly {
+		t.Errorf("members = %+v", v.Members)
+	}
+}
+
+func TestAddMemberKeepsExistingMembers(t *testing.T) {
+	dir := t.TempDir()
+	path := writeViewFile(t, dir, "x.view", "mount = \"~/views/x\"\n[[member]]\npath = \"~/code/api\"\nas = \"backend\"\nexclude = [\"*.snap\"]\n")
+	if err := addMember(path, dir, "here", false, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := decodeViewFile(path, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Mount != "~/views/x" || len(f.Member) != 2 {
+		t.Fatalf("view file = %+v", f)
+	}
+	if first := f.Member[0]; first.Path != "~/code/api" || first.As != "backend" || len(first.Exclude) != 1 {
+		t.Errorf("first member = %+v", first)
+	}
+}
+
+func TestAddMemberRefusesADuplicateNameAndAMissingPath(t *testing.T) {
+	dir := t.TempDir()
+	path := writeViewFile(t, dir, "x.view", "")
+	if err := addMember(path, dir, "a", false, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := addMember(path, dir, "a", false, io.Discard); err == nil {
+		t.Error("a duplicate member name was added")
+	}
+	if err := addMember(path, filepath.Join(dir, "gone"), "", false, io.Discard); err == nil {
+		t.Error("a missing path was added")
+	}
+	if err := addMember(filepath.Join(dir, "gone.view"), dir, "", false, io.Discard); err == nil {
+		t.Error("a member was added to a missing view")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("a refused add changed the view file:\n%s", after)
+	}
+}
+
+func TestAddMemberNotesAMountedView(t *testing.T) {
+	dir := t.TempDir()
+	path := writeViewFile(t, dir, "mounted.view", "mount = \"/dev\"\n")
+	var notice bytes.Buffer
+	if err := addMember(path, dir, "", false, &notice); err != nil {
+		t.Fatal(err)
+	}
+	if want := path + " is mounted; remount to apply your changes\n"; notice.String() != want {
+		t.Errorf("notice = %q, want %q", notice.String(), want)
+	}
+}

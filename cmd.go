@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -22,7 +23,8 @@ const usage = "usage: vw <command>\n" +
 	"  edit <view>     open a view file in $EDITOR\n" +
 	"  run <view> [--] <command> [args...]   run a command inside a view, mounting it if needed\n" +
 	"  shell <view>    open $SHELL inside a view, mounting it if needed\n" +
-	"  new <view> [path...]   create a view; a name goes in the central directory, a file path stays where it is"
+	"  new <view> [path...]   create a view; a name goes in the central directory, a file path stays where it is\n" +
+	"  add <view> <path> [--as name] [--ro]   add a member to a view"
 
 // listViews prints the name of every central view.
 func listViews(w io.Writer) error {
@@ -212,4 +214,74 @@ func newCmd(args []string) {
 		fatal(e)
 	}
 	fmt.Println(path)
+}
+
+// addMember appends path to a view file as a member. It refuses a path that doesn't exist and a name
+// another member already has, and says to remount if the view is mounted.
+func addMember(arg, path, as string, ro bool, notice io.Writer) error {
+	file, e := resolveView(arg)
+	if e != nil {
+		return e
+	}
+	f, e := readViewFile(file)
+	if e != nil {
+		return e
+	}
+	v, e := loadViewFile(file)
+	if e != nil {
+		return e
+	}
+	abs, e := filepath.Abs(path)
+	if e != nil {
+		return e
+	}
+	if _, e := os.Stat(abs); e != nil {
+		return e
+	}
+	name := as
+	if name == "" {
+		name = filepath.Base(abs)
+	}
+	for _, m := range v.Members {
+		if m.Name == name {
+			return fmt.Errorf("%s already has a member named %q", arg, name)
+		}
+	}
+	absFile, e := filepath.Abs(file)
+	if e != nil {
+		return e
+	}
+	stored, e := memberPath(arg, absFile, abs)
+	if e != nil {
+		return e
+	}
+	f.Member = append(f.Member, viewMemberFile{Path: stored, As: as, Ro: ro})
+	if e := saveViewFile(file, f); e != nil {
+		return e
+	}
+	noticeIfMounted(v, arg, notice)
+	return nil
+}
+
+// addCmd takes its flags before or after the positional arguments.
+func addCmd(args []string) {
+	set := flag.NewFlagSet("add", flag.ExitOnError)
+	as := set.String("as", "", "name the member differently from its directory")
+	ro := set.Bool("ro", false, "refuse writes to the member")
+	var positional []string
+	for {
+		set.Parse(args)
+		if set.NArg() == 0 {
+			break
+		}
+		positional = append(positional, set.Arg(0))
+		args = set.Args()[1:]
+	}
+	if len(positional) != 2 {
+		fmt.Fprintln(os.Stderr, usage)
+		os.Exit(2)
+	}
+	if e := addMember(positional[0], positional[1], *as, *ro, os.Stderr); e != nil {
+		fatal(e)
+	}
 }
