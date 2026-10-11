@@ -120,6 +120,15 @@ func loadViewFile(path string) (*view, error) {
 	return v, nil
 }
 
+// saveViewFile overwrites path with f. Comments and formatting in the old file are lost.
+func saveViewFile(path string, f viewFile) error {
+	data, e := toml.Marshal(f)
+	if e != nil {
+		return e
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
 // viewsDir is where central views live, ~/.config/vw/views unless XDG_CONFIG_HOME says otherwise.
 func viewsDir() (string, error) {
 	if config := os.Getenv("XDG_CONFIG_HOME"); config != "" {

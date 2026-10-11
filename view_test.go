@@ -134,3 +134,46 @@ func TestResolveViewHonoursXDGConfigHome(t *testing.T) {
 		t.Errorf("resolveView = %q, %v, want %q", got, err, want)
 	}
 }
+
+func TestSaveViewFileKeepsEveryField(t *testing.T) {
+	path := writeViewFile(t, t.TempDir(), "x.view", `
+mount = "~/views/x"
+include = ["/api/"]
+exclude = ["dist/"]
+
+[[member]]
+path = "~/code/api"
+as = "backend"
+ro = true
+include = ["src/"]
+exclude = ["*.snap"]
+
+[[member]]
+path = "../docs"
+`)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := decodeViewFile(path, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := saveViewFile(path, want); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := decodeViewFile(path, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(want, got) {
+		t.Errorf("after save = %+v, want %+v", got, want)
+	}
+	if !strings.Contains(string(data), "~/code/api") {
+		t.Errorf("saved file rewrote the ~ path:\n%s", data)
+	}
+}
