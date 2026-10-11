@@ -146,8 +146,20 @@ func editCmd(args []string) {
 	}
 }
 
-// newView writes a view file with one member per path and returns where it went. A central view
-// records absolute paths, and a view file elsewhere records them relative to itself.
+// memberPath is how a view file records the member path p. A central view records it absolute, and
+// a view file elsewhere records it relative to itself.
+func memberPath(arg, file, p string) (string, error) {
+	member, e := filepath.Abs(p)
+	if e != nil {
+		return "", e
+	}
+	if isViewFilePath(arg) {
+		return filepath.Rel(filepath.Dir(file), member)
+	}
+	return member, nil
+}
+
+// newView writes a view file with one member per path and returns where it went.
 func newView(arg string, paths []string) (string, error) {
 	path, e := resolveView(arg)
 	if e != nil {
@@ -159,14 +171,9 @@ func newView(arg string, paths []string) (string, error) {
 	}
 	var f viewFile
 	for _, p := range paths {
-		member, e := filepath.Abs(p)
+		member, e := memberPath(arg, file, p)
 		if e != nil {
 			return "", e
-		}
-		if isViewFilePath(arg) {
-			if member, e = filepath.Rel(filepath.Dir(file), member); e != nil {
-				return "", e
-			}
 		}
 		f.Member = append(f.Member, viewMemberFile{Path: member})
 	}
