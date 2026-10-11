@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/winfsp/cgofuse/fuse"
@@ -310,5 +311,167 @@ func TestMountFlagsRejectMemberOptionsWithoutMember(t *testing.T) {
 		if _, err := parseMountFlags(append(args, "--member", "/a")); err == nil {
 			t.Errorf("%v before any --member was accepted", args)
 		}
+	}
+}
+
+func newSidecarFS(t *testing.T) (fs *viewFS, real, side string) {
+	t.Helper()
+	real, side = t.TempDir(), t.TempDir()
+	view, err := core.New([]core.Member{
+		{Name: "gw", Path: real},
+		{Name: "ro", Path: t.TempDir(), ReadOnly: true},
+	}, core.WithExclude("node_modules/"), core.WithSidecars(side))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &viewFS{view: view}, real, side
+}
+
+func createSidecar(t *testing.T, fs *viewFS, path, content string) {
+	t.Helper()
+	errc, fh := fs.Create(path, syscall.O_CREAT|syscall.O_RDWR, 0o644)
+	if errc != 0 {
+		t.Fatalf("Create(%q) = %d", path, errc)
+	}
+	if n := fs.Write(path, []byte(content), 0, fh); n != len(content) {
+		t.Fatalf("Write(%q) = %d", path, n)
+	}
+	if errc := fs.Release(path, fh); errc != 0 {
+		t.Fatalf("Release(%q) = %d", path, errc)
+	}
+}
+
+func TestSidecarsLandInTheSidecarDirectory(t *testing.T) {
+	fs, real, side := newSidecarFS(t)
+	createSidecar(t, fs, "/gw/._a.txt", "meta")
+	if exists(filepath.Join(real, "._a.txt")) {
+		t.Error("the sidecar reached the real folder")
+	}
+	if got, err := os.ReadFile(filepath.Join(side, "gw", "._a.txt")); err != nil || string(got) != "meta" {
+		t.Errorf("sidecar file = %q, %v, want meta", got, err)
+	}
+	var stat fuse.Stat_t
+	if errc := fs.Getattr("/gw/._a.txt", &stat, ^uint64(0)); errc != 0 || stat.Size != 4 {
+		t.Errorf("Getattr = %d, size %d, want 0, 4", errc, stat.Size)
+	}
+	errc, fh := fs.Open("/gw/._a.txt", syscall.O_RDONLY)
+	if errc != 0 {
+		t.Fatalf("Open = %d", errc)
+	}
+	buf := make([]byte, 8)
+	if n := fs.Read("/gw/._a.txt", buf, 0, fh); string(buf[:n]) != "meta" {
+		t.Errorf("Read = %q, want meta", buf[:n])
+	}
+	fs.Release("/gw/._a.txt", fh)
+}
+
+func TestSidecarsCreateTheirDirectories(t *testing.T) {
+	fs, real, side := newSidecarFS(t)
+	createSidecar(t, fs, "/gw/sub/deeper/._a", "x")
+	if !exists(filepath.Join(side, "gw", "sub", "deeper", "._a")) {
+		t.Error("the sidecar was not created under its mirrored directory")
+	}
+	if exists(filepath.Join(real, "sub")) {
+		t.Error("a sidecar write created a directory in the real folder")
+	}
+}
+
+func TestReaddirHidesSidecarNames(t *testing.T) {
+	fs, real, _ := newSidecarFS(t)
+	for _, p := range []string{"keep.txt", "._old", "node_modules/._x", "node_modules/pkg/index.js"} {
+		full := filepath.Join(real, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tests := []struct {
+		path string
+		want []string
+	}{
+		{"/gw", []string{"keep.txt"}},
+		{"/gw/node_modules", []string{"pkg"}},
+	}
+	for _, tt := range tests {
+		if got := listView(t, fs, tt.path); !slices.Equal(tt.want, got) {
+			t.Errorf("Readdir(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestRenameAndUnlinkSidecars(t *testing.T) {
+	fs, real, side := newSidecarFS(t)
+	createSidecar(t, fs, "/gw/._a", "x")
+	if errc := fs.Rename("/gw/._a", "/gw/._b"); errc != 0 {
+		t.Fatalf("Rename = %d", errc)
+	}
+	if exists(filepath.Join(side, "gw", "._a")) || !exists(filepath.Join(side, "gw", "._b")) {
+		t.Error("Rename did not move the sidecar")
+	}
+	if errc := fs.Unlink("/gw/._b"); errc != 0 {
+		t.Fatalf("Unlink = %d", errc)
+	}
+	if exists(filepath.Join(side, "gw", "._b")) {
+		t.Error("Unlink left the sidecar")
+	}
+	if entries, _ := os.ReadDir(real); len(entries) != 0 {
+		t.Errorf("the real folder has %d entries, want 0", len(entries))
+	}
+}
+
+func TestSidecarsHonourReadOnlyMembers(t *testing.T) {
+	fs, _, _ := newSidecarFS(t)
+	if errc, _ := fs.Create("/ro/._a", syscall.O_CREAT|syscall.O_RDWR, 0o644); errc != -int(syscall.EROFS) {
+		t.Errorf("Create on a read-only member = %d, want EROFS", errc)
+	}
+}
+
+func TestRenameDirectoryMovesItsSidecars(t *testing.T) {
+	fs, real, side := newSidecarFS(t)
+	if err := os.Mkdir(filepath.Join(real, "d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	createSidecar(t, fs, "/gw/d/._f", "x")
+	if errc := fs.Rename("/gw/d", "/gw/e"); errc != 0 {
+		t.Fatalf("Rename = %d", errc)
+	}
+	if !exists(filepath.Join(side, "gw", "e", "._f")) || exists(filepath.Join(side, "gw", "d")) {
+		t.Error("the sidecars did not follow the renamed directory")
+	}
+}
+
+func TestRenameFileLeavesSidecarTreesAlone(t *testing.T) {
+	fs, real, side := newSidecarFS(t)
+	createSidecar(t, fs, "/gw/d/._f", "x")
+	if err := os.WriteFile(filepath.Join(real, "a.txt"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if errc := fs.Rename("/gw/a.txt", "/gw/b.txt"); errc != 0 {
+		t.Fatalf("Rename = %d", errc)
+	}
+	if !exists(filepath.Join(side, "gw", "d", "._f")) {
+		t.Error("renaming a file disturbed another directory's sidecars")
+	}
+}
+
+func TestRmdirDropsItsSidecars(t *testing.T) {
+	fs, real, side := newSidecarFS(t)
+	if err := os.Mkdir(filepath.Join(real, "d"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	createSidecar(t, fs, "/gw/d/._f", "x")
+	if errc := fs.Rmdir("/gw/d"); errc != 0 {
+		t.Fatalf("Rmdir = %d", errc)
+	}
+	if exists(filepath.Join(side, "gw", "d")) {
+		t.Error("Rmdir left the sidecar directory")
+	}
+}
+
+func TestSidecarDirSitsNextToScratch(t *testing.T) {
+	if got, want := sidecarDir("/x/views/a/root"), "/x/views/a/root.appledouble"; got != want {
+		t.Errorf("sidecarDir = %q, want %q", got, want)
 	}
 }

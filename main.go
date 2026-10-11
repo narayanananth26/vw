@@ -63,6 +63,9 @@ func (self *viewFS) real(path string) (string, int) {
 
 func (self *viewFS) realWrite(path string) (string, int) {
 	real, e := self.view.ResolveWrite(path)
+	if e == nil && self.view.IsSidecar(path) {
+		e = os.MkdirAll(filepath.Dir(real), 0o755)
+	}
 	return real, errno(e)
 }
 
@@ -73,6 +76,9 @@ func (self *viewFS) realRemove(path string) (string, int) {
 
 func (self *viewFS) realPair(oldpath, newpath string) (string, string, int) {
 	oldreal, newreal, e := self.view.ResolvePair(oldpath, newpath)
+	if e == nil && self.view.IsSidecar(newpath) {
+		e = os.MkdirAll(filepath.Dir(newreal), 0o755)
+	}
 	return oldreal, newreal, errno(e)
 }
 
@@ -131,11 +137,15 @@ func (self *viewFS) Unlink(path string) (errc int) {
 
 func (self *viewFS) Rmdir(path string) (errc int) {
 	defer trace(path)(&errc)
-	path, errc = self.realRemove(path)
+	real, errc := self.realRemove(path)
 	if errc != 0 {
 		return
 	}
-	return errno(syscall.Rmdir(path))
+	errc = errno(syscall.Rmdir(real))
+	if errc == 0 {
+		self.dropSidecarTree(path)
+	}
+	return
 }
 
 func (self *viewFS) Link(oldpath string, newpath string) (errc int) {
@@ -175,11 +185,38 @@ func (self *viewFS) Readlink(path string) (errc int, target string) {
 func (self *viewFS) Rename(oldpath string, newpath string) (errc int) {
 	defer trace(oldpath, newpath)(&errc)
 	defer setuidgid()()
-	oldpath, newpath, errc = self.realPair(oldpath, newpath)
+	oldreal, newreal, errc := self.realPair(oldpath, newpath)
 	if errc != 0 {
 		return
 	}
-	return errno(syscall.Rename(oldpath, newpath))
+	errc = errno(syscall.Rename(oldreal, newreal))
+	if errc == 0 {
+		self.moveSidecarTree(oldpath, newpath)
+	}
+	return
+}
+
+func (self *viewFS) moveSidecarTree(oldpath, newpath string) {
+	oldTree, ok := self.view.SidecarTree(oldpath)
+	if !ok {
+		return
+	}
+	newTree, ok := self.view.SidecarTree(newpath)
+	if !ok {
+		return
+	}
+	if fi, e := os.Stat(oldTree); e != nil || !fi.IsDir() {
+		return
+	}
+	if os.MkdirAll(filepath.Dir(newTree), 0o755) == nil {
+		os.Rename(oldTree, newTree)
+	}
+}
+
+func (self *viewFS) dropSidecarTree(path string) {
+	if tree, ok := self.view.SidecarTree(path); ok {
+		os.RemoveAll(tree)
+	}
 }
 
 func (self *viewFS) Chmod(path string, mode uint32) (errc int) {
@@ -347,7 +384,12 @@ func (self *viewFS) Readdir(path string,
 			return errno(e)
 		}
 		for _, entry := range entries {
-			if !listed || self.view.Visible(filepath.Join(path, entry.Name()), entry.IsDir()) {
+			child := filepath.Join(path, entry.Name())
+			// Resolve sends ._ names to the sidecar directory, so a real one can't be opened.
+			if self.view.IsSidecar(child) {
+				continue
+			}
+			if !listed || self.view.Visible(child, entry.IsDir()) {
 				nams = append(nams, entry.Name())
 			}
 		}

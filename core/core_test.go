@@ -387,3 +387,27 @@ func TestResolvePairSidecar(t *testing.T) {
 		}
 	}
 }
+
+func TestSidecarTree(t *testing.T) {
+	view := newSidecarView(t)
+	tests := []struct {
+		path string
+		want string
+		ok   bool
+	}{
+		{"/docs/sub", "/sidecars/docs/sub", true},
+		{"/docs/sub/deeper", "/sidecars/docs/sub/deeper", true},
+		{"/docs", "", false},
+		{"/docs/sub/._a", "", false},
+		{"/nope/sub", "", false},
+	}
+	for _, tt := range tests {
+		got, ok := view.SidecarTree(tt.path)
+		if tt.want != got || tt.ok != ok {
+			t.Errorf("SidecarTree(%q) = %q, %v, want %q, %v", tt.path, got, ok, tt.want, tt.ok)
+		}
+	}
+	if _, ok := newTestView(t).SidecarTree("/docs/sub"); ok {
+		t.Error("SidecarTree is ok without WithSidecars")
+	}
+}

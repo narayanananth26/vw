@@ -250,6 +250,11 @@ type mountSpec struct {
 	readyFD          int
 }
 
+// sidecarDir sits beside the scratch directory, so a custom --scratch gets its own.
+func sidecarDir(scratch string) string {
+	return scratch + ".appledouble"
+}
+
 func viewDataDir(v *view) (string, error) {
 	home, e := os.UserHomeDir()
 	if e != nil {
@@ -344,7 +349,7 @@ func mountCmd(args []string) {
 	if err := os.MkdirAll(spec.scratch, 0o755); err != nil {
 		fatal(err)
 	}
-	view, err := core.New(members, core.WithInclude(spec.include...), core.WithExclude(spec.exclude...), core.WithScratch(spec.scratch))
+	view, err := core.New(members, core.WithInclude(spec.include...), core.WithExclude(spec.exclude...), core.WithScratch(spec.scratch), core.WithSidecars(sidecarDir(spec.scratch)))
 	if err != nil {
 		fatal(err)
 	}

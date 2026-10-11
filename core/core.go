@@ -147,6 +147,17 @@ func (self *View) IsSidecar(viewPath string) bool {
 	return isMember && self.sidecars != "" && rest != "" && strings.HasPrefix(path.Base(rest), "._")
 }
 
+// SidecarTree is the sidecar directory mirroring the member directory at viewPath. ok is false when
+// sidecars are off or viewPath is a member root, outside a member, or a sidecar.
+func (self *View) SidecarTree(viewPath string) (string, bool) {
+	name, rest := split(viewPath)
+	_, isMember := self.members[name]
+	if !isMember || self.sidecars == "" || rest == "" || self.IsSidecar(viewPath) {
+		return "", false
+	}
+	return filepath.Join(self.sidecars, name, rest), true
+}
+
 // RootEntries merges scratchNames into the member names, sorted. A member hides a scratch entry
 // of the same name.
 func (self *View) RootEntries(scratchNames []string) []string {

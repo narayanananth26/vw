@@ -155,3 +155,35 @@ func TestVisibleScratchIgnoresFilters(t *testing.T) {
 		t.Error("Visible(/api/README.md) = true, want false for an excluded member file")
 	}
 }
+
+func TestVisibleHidesSidecarsOnlyWhenOn(t *testing.T) {
+	members := []Member{{Name: "docs", Path: "/home/notes"}}
+	on, err := New(members, WithSidecars("/sidecars"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	off, err := New(members)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		path    string
+		on, off bool
+	}{
+		{"/docs/._a.txt", false, true},
+		{"/docs/sub/._a.txt", false, true},
+		{"/docs/.git/._index", false, true},
+		{"/docs/a.txt", true, true},
+		{"/docs/.git/index", true, true},
+		{"/docs/._d/a.txt", true, true},
+		{"/other/._a", true, true},
+	}
+	for _, tt := range tests {
+		if got := on.Visible(tt.path, false); tt.on != got {
+			t.Errorf("Visible(%q) with sidecars = %v, want %v", tt.path, got, tt.on)
+		}
+		if got := off.Visible(tt.path, false); tt.off != got {
+			t.Errorf("Visible(%q) without sidecars = %v, want %v", tt.path, got, tt.off)
+		}
+	}
+}

@@ -90,11 +90,14 @@ func excludedBy(m gitignore.Matcher, parts []string, isDir bool) bool {
 
 // Visible reports whether a view path shows up once the filters apply. isDir says whether its
 // last element is a directory. A path with a .git element, or outside every member, is always
-// visible.
+// visible, except sidecar names.
 func (self *View) Visible(viewPath string, isDir bool) bool {
 	clean := path.Clean("/" + viewPath)
 	if clean == "/" {
 		return true
+	}
+	if self.IsSidecar(viewPath) {
+		return false
 	}
 	parts := strings.Split(clean[1:], "/")
 	if slices.Contains(parts, ".git") {
