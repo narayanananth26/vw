@@ -427,9 +427,11 @@ type viewStatus struct {
 	Mount    string `json:"mount"`
 	Mounted  bool   `json:"mounted"`
 	Sessions bool   `json:"sessions"`
+
+	Processes []sessionInfo `json:"processes"`
 }
 
-// statusOf reports where a view lives, whether it is mounted, and whether a run or shell is using it.
+// statusOf reports where a view lives, whether it is mounted, and the runs and shells using it.
 func statusOf(arg string) (viewStatus, error) {
 	v, e := openView(arg)
 	if e != nil {
@@ -447,11 +449,14 @@ func statusOf(arg string) (viewStatus, error) {
 	if e != nil {
 		return viewStatus{}, e
 	}
-	sessions, e := sessionsActive(filepath.Join(dir, "session.lock"))
+	processes, e := activeSessions(dir)
 	if e != nil {
 		return viewStatus{}, e
 	}
-	return viewStatus{v.Name, file, filepath.Clean(v.Mount), mounted, sessions}, nil
+	if processes == nil {
+		processes = []sessionInfo{}
+	}
+	return viewStatus{v.Name, file, filepath.Clean(v.Mount), mounted, len(processes) > 0, processes}, nil
 }
 
 // printStatus prints the status of the given views, or of every central view when none is given.
@@ -484,6 +489,9 @@ func printStatus(w io.Writer, args []string, asJSON bool) error {
 			state += " in-use"
 		}
 		fmt.Fprintf(table, "%s\t%s\t%s\n", s.Name, state, s.Mount)
+		for _, p := range s.Processes {
+			fmt.Fprintf(table, "  %d  %s\n", p.PID, strings.Join(p.Command, " "))
+		}
 	}
 	return table.Flush()
 }

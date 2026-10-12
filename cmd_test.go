@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -496,6 +497,9 @@ func TestPrintStatusJSONReportsMountAndSessions(t *testing.T) {
 	data, _ := viewDataDir(v)
 	s := mustJoin(t, filepath.Join(data, "session.lock"))
 	defer s.close()
+	if err := s.record(data, []string{"nvim", "."}); err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
 	if err := printStatus(&out, []string{mounted, idle}, true); err != nil {
 		t.Fatal(err)
@@ -505,11 +509,33 @@ func TestPrintStatusJSONReportsMountAndSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []viewStatus{
-		{"up", mounted, "/dev", true, true},
-		{"idle", idle, filepath.Join(dir, "idle"), false, false},
+		{"up", mounted, "/dev", true, true, []sessionInfo{{os.Getpid(), []string{"nvim", "."}}}},
+		{"idle", idle, filepath.Join(dir, "idle"), false, false, []sessionInfo{}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("status = %+v, want %+v", got, want)
+	}
+}
+
+func TestPrintStatusTextListsEachProcessUnderItsView(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	view := writeViewFile(t, dir, "up.view", "mount = \"/dev\"\n")
+	v, _ := openView(view)
+	data, _ := viewDataDir(v)
+	s := mustJoin(t, filepath.Join(data, "session.lock"))
+	defer s.close()
+	if err := s.record(data, []string{"nvim", "."}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := printStatus(&out, []string{view}, false); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	want := fmt.Sprintf("  %d  nvim .", os.Getpid())
+	if len(lines) != 2 || !strings.Contains(lines[0], "mounted in-use") || lines[1] != want {
+		t.Errorf("status text = %q, want a row and %q", out.String(), want)
 	}
 }
 
