@@ -1,7 +1,9 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -123,5 +125,41 @@ func TestSessionsActiveSeesJoinedSessions(t *testing.T) {
 	s.close()
 	if active, err := sessionsActive(path); err != nil || active {
 		t.Errorf("left: sessionsActive = %v, %v, want false", active, err)
+	}
+}
+
+func TestActiveSessionsListsRecordedSessionsUntilTheyClose(t *testing.T) {
+	dir := t.TempDir()
+	if got, err := activeSessions(dir); err != nil || len(got) != 0 {
+		t.Fatalf("no sessions dir: activeSessions = %v, %v, want none", got, err)
+	}
+	s := mustJoin(t, filepath.Join(dir, "session.lock"))
+	if err := s.record(dir, []string{"nvim", "."}); err != nil {
+		t.Fatal(err)
+	}
+	want := []sessionInfo{{os.Getpid(), []string{"nvim", "."}}}
+	if got, err := activeSessions(dir); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("recorded: activeSessions = %v, %v, want %v", got, err, want)
+	}
+	s.close()
+	if got, err := activeSessions(dir); err != nil || len(got) != 0 {
+		t.Errorf("closed: activeSessions = %v, %v, want none", got, err)
+	}
+}
+
+func TestActiveSessionsRemovesRecordsOfDeadSessions(t *testing.T) {
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "sessions", "4242")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte(`{"pid":4242,"command":["sh"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := activeSessions(dir); err != nil || len(got) != 0 {
+		t.Errorf("activeSessions = %v, %v, want none", got, err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("stale record still exists: %v", err)
 	}
 }
