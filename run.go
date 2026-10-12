@@ -110,8 +110,8 @@ func unmount(path string) error {
 	return nil
 }
 
-// startSession mounts the view if needed and joins its session.
-func startSession(v *view, dir string, ops mountOps) (*session, error) {
+// startSession mounts the view if needed and joins its session, recording argv as the command it runs.
+func startSession(v *view, dir string, ops mountOps, argv []string) (*session, error) {
 	lock, e := lockExclusive(filepath.Join(dir, "start.lock"))
 	if e != nil {
 		return nil, e
@@ -129,7 +129,15 @@ func startSession(v *view, dir string, ops mountOps) (*session, error) {
 			return nil, e
 		}
 	}
-	return joinSession(filepath.Join(dir, "session.lock"))
+	sess, e := joinSession(filepath.Join(dir, "session.lock"))
+	if e != nil {
+		return nil, e
+	}
+	if e := sess.record(dir, argv); e != nil {
+		sess.close()
+		return nil, e
+	}
+	return sess, nil
 }
 
 // endSession leaves the session and, as the last one out, unmounts a view that startSession mounted.
@@ -220,7 +228,7 @@ func runViewWith(arg string, argv []string, ops mountOps, warn io.Writer) (int, 
 	if e != nil {
 		return 0, e
 	}
-	sess, e := startSession(v, dir, ops)
+	sess, e := startSession(v, dir, ops, argv)
 	if e != nil {
 		return 0, e
 	}

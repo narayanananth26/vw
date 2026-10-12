@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -175,11 +176,11 @@ func TestOnlyTheLastSessionUnmountsAViewRunStarted(t *testing.T) {
 	dir, _ := viewDataDir(v)
 	var fake fakeOps
 	ops := fake.ops()
-	a, err := startSession(v, dir, ops)
+	a, err := startSession(v, dir, ops, []string{"sh"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := startSession(v, dir, ops)
+	b, err := startSession(v, dir, ops, []string{"sh"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,6 +191,27 @@ func TestOnlyTheLastSessionUnmountsAViewRunStarted(t *testing.T) {
 	endSession(v, dir, b, ops, &bytes.Buffer{})
 	if len(fake.unmounts) != 1 || exists(marker) {
 		t.Errorf("unmounts = %v, marker present = %v, want one unmount and no marker", fake.unmounts, exists(marker))
+	}
+}
+
+func TestASessionRecordsItsCommandUntilItEnds(t *testing.T) {
+	view := mountedViewAtDev(t)
+	v, _ := openView(view)
+	dir, _ := viewDataDir(v)
+	var fake fakeOps
+	ops := fake.ops()
+	argv := []string{"nvim", "."}
+	sess, err := startSession(v, dir, ops, argv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []sessionInfo{{os.Getpid(), argv}}
+	if got, err := activeSessions(dir); err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("running: activeSessions = %v, %v, want %v", got, err, want)
+	}
+	endSession(v, dir, sess, ops, &bytes.Buffer{})
+	if got, err := activeSessions(dir); err != nil || len(got) != 0 {
+		t.Errorf("ended: activeSessions = %v, %v, want none", got, err)
 	}
 }
 
