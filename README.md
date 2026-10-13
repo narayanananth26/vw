@@ -23,3 +23,7 @@ A view will be a small TOML file (we'll see).
 It's written in Go on [cgofuse](https://github.com/winfsp/cgofuse) and
 [FUSE-T](https://www.fuse-t.org/), so it runs in user space with no kernel
 extension.
+
+## Update
+- [FUSE-T](https://www.fuse-t.org/) turned out to be very slow. Processes that do many i/o ops like tsc on a resonable large project, are very slow due to the loopback overhead on every call.
+- I am checking out [FSKit](https://developer.apple.com/documentation/fskit), which is a more native solution. We'll still have the round trip between userspace and kernel but there won't be the extra overhead of an NFS mount. It also seems to have better support for fileattributes and cache control.
